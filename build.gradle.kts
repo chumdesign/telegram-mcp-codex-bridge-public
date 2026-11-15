@@ -154,7 +154,7 @@ dependencies {
     // Parse user-authored rich Articles locally: TDLib's Markdown/HTML sources are bot-only.
     implementation("org.commonmark:commonmark:0.24.0")
     implementation("org.commonmark:commonmark-ext-gfm-tables:0.24.0")
-    implementation("org.jsoup:jsoup:1.21.2")
+    implementation("org.jsoup:jsoup:1.24.1")
 
     // ── Observability ───────────────────────────────────────────────────────
     implementation("io.micrometer:micrometer-registry-prometheus")
