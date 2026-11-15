@@ -113,6 +113,11 @@ class ReplyToMessageTool(
         val messageId = extractMessageId(arguments)
         val text = extractText(arguments)
         val parseMode = ToolInputParsers.parseMode(arguments)
+        val messageThreadId = arguments["message_thread_id"]?.let {
+            dev.telegrammcp.server.tool.media.MediaArguments.positiveInteger(it, "message_thread_id").also { topicId ->
+                if (topicId > Int.MAX_VALUE) throw InvalidToolInputException("message_thread_id is outside the forum topic range")
+            }
+        }
 
         log.withTool(TOOL_NAME).info(
             "Replying to message {} in chat {} (parseMode={})", messageId, chatId, parseMode,
@@ -122,7 +127,7 @@ class ReplyToMessageTool(
         guardrailService.validateChatAccess(chatId)
 
         val send = {
-            val reply = telegramClient.replyToMessage(chatId, messageId, text, parseMode)
+            val reply = telegramClient.replyToMessage(chatId, messageId, text, parseMode, messageThreadId)
             if (reply.replyToMessageId != messageId) {
                 throw IllegalStateException("Telegram did not attach reply to message $messageId in chat $chatId")
             }
@@ -130,7 +135,7 @@ class ReplyToMessageTool(
         }
         if (key == null) objectMapper.writeValueAsString(send())
         else sendOperations.send(
-            key, chatId, listOf(TOOL_NAME, chatId, messageId, text, parseMode.name),
+            key, chatId, listOf(TOOL_NAME, chatId, messageId, text, parseMode.name) + listOfNotNull(messageThreadId),
             beforeSend = { operationGuardService.checkPermission(TOOL_NAME, arguments) }, send = send,
         )
     }
@@ -142,7 +147,9 @@ class ReplyToMessageTool(
 
     private fun extractMessageId(args: Map<String, Any>): Long {
         val raw = args["message_id"] ?: throw InvalidToolInputException("message_id is required")
-        return ToolNumbers.long(raw, "message_id")
+        return ToolNumbers.long(raw, "message_id").also {
+            if (it <= 0) throw InvalidToolInputException("message_id must be a positive integer")
+        }
     }
 
     private fun extractText(args: Map<String, Any>): String {

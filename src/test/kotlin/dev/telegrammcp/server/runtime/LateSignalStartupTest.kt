@@ -93,7 +93,7 @@ class LateSignalStartupTest {
     }
 
     private companion object {
-        const val PROBE_TIMEOUT_SECONDS = 60L
+        const val PROBE_TIMEOUT_SECONDS = 120L
     }
 }
 
@@ -118,7 +118,7 @@ object LateSignalStartupProbe {
             // Starting a child JVM during the full native/HTTP suite can take
             // several seconds on a loaded runner. This test covers late hook
             // registration, not the production watchdog's deadline.
-            graceMillis = 15_000,
+            graceMillis = 60_000,
             halt = { code -> Runtime.getRuntime().halt(code) },
         )
         checkNotNull(installSignalShutdownHook(shutdown)) { "signal hook was not registered" }

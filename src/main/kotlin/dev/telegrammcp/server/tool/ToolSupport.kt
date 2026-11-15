@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.tool
+package dev.telegrammcp.server.tool
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.telegrammcp.server.model.AuditOutcome
@@ -85,9 +85,11 @@ object ToolSupport {
     private fun typedOutputSchema(dataSchema: Map<String, Any>): Map<String, Any> {
         @Suppress("UNCHECKED_CAST")
         val properties = outputSchema["properties"] as Map<String, Any>
-        return outputSchema + ("properties" to (properties + ("data" to mapOf(
-            "anyOf" to listOf(dataSchema, ToolOutputSchemas.error),
+        val definitions = dataSchema["\$defs"]
+        val envelope = outputSchema + ("properties" to (properties + ("data" to mapOf(
+            "anyOf" to listOf(dataSchema - "\$defs", ToolOutputSchemas.error),
         ))))
+        return if (definitions == null) envelope else envelope + ("\$defs" to definitions)
     }
 
     fun execute(

@@ -138,6 +138,7 @@ class AuthWizardController(
           const statusBox = document.getElementById('status');
           const credentials = document.getElementById('credentials');
           const challenge = document.getElementById('challenge');
+          const challengeLabel = document.getElementById('challengeLabel');
           const qr = document.getElementById('qr');
           if(method === 'qr') document.getElementById('phoneWrap').hidden = true;
           async function api(path, body) {
@@ -161,32 +162,41 @@ class AuthWizardController(
           challenge.addEventListener('submit', async event => {
             event.preventDefault();
             const input=document.getElementById('challengeInput');
+            const button=challenge.querySelector('button');
+            button.disabled=true;
             try {
               const state=await api('/auth/state');
               const path=state.state==='waitingPassword'?'/auth/submit-password':'/auth/submit-code';
               const key=state.state==='waitingPassword'?'password':'code';
               await api(path,{[key]:input.value});
               input.value=''; challenge.hidden=true; poll();
-            } catch(error) { showError(error); }
+            } catch(error) { showError(error); } finally { button.disabled=false; }
           });
           function showError(error){statusBox.className='error';statusBox.textContent=error.message;}
+          let pollTimer, polling=false;
           async function poll(){
+            if(polling) return;
+            clearTimeout(pollTimer); polling=true;
             try{
               const state=await api('/auth/state');
               statusBox.className=''; statusBox.textContent='Telegram state: '+state.state;
+              credentials.hidden=['waitingQr','waitingCode','waitingPassword','ready'].includes(state.state);
               qr.style.display='none'; challenge.hidden=true;
               if(state.state==='waitingQr'){
                 qr.src='/setup/qr.svg?nonce='+encodeURIComponent(nonce)+'&t='+Date.now(); qr.style.display='block';
               } else if(state.state==='waitingCode'||state.state==='waitingPassword'){
                 challenge.hidden=false;
                 challengeLabel.textContent=state.state==='waitingPassword'?'Telegram 2FA password':'Telegram login code';
+                if(state.errorMessage) showError(new Error(state.errorMessage));
               } else if(state.state==='ready'){
                 statusBox.className='success';statusBox.textContent='Connected. You can close this tab.';
                 credentials.hidden=true;return;
               } else if(state.state==='error'){throw new Error(state.errorMessage||'Authentication failed');}
-              setTimeout(poll,900);
-            }catch(error){showError(error);}
+              pollTimer=setTimeout(poll,900);
+            }catch(error){showError(error);}finally{polling=false;}
           }
+          // Resume an existing local login when the page is opened or reloaded.
+          poll();
         </script></body></html>
     """.trimIndent()
 

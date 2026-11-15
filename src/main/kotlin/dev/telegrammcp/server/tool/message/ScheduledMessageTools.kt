@@ -66,6 +66,7 @@ class ScheduleMessageTool(
             "send_at":{"type":["string","integer"],"description":"Future ISO-8601 instant or Unix epoch seconds"},
             "repeat_period_seconds":{"type":"integer","description":"Optional repeat period in seconds; 0 disables repetition"},
             "disable_notification":{"type":"boolean","description":"Send without notification"},
+            "message_thread_id":{"type":["string","integer"],"description":"Forum topic message thread ID"},
             "parse_mode":{"type":"string","enum":["plain","html","markdown"]}
           },
           "required":["chat_id","text","send_at"]
@@ -87,8 +88,13 @@ class ScheduleMessageTool(
             val repeatPeriod = ScheduledMessageInputs.repeatPeriod(arguments)
             val silent = ScheduledMessageInputs.optionalBoolean(arguments, "disable_notification")
             val parseMode = ToolInputParsers.parseMode(arguments)
+            val messageThreadId = arguments["message_thread_id"]?.let {
+                dev.telegrammcp.server.tool.media.MediaArguments.positiveInteger(it, "message_thread_id").also { id ->
+                    if (id > Int.MAX_VALUE) throw InvalidToolInputException("Forum topic ID is out of range")
+                }
+            }
             dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
-                arguments, chatId, listOf(text, sendAt, repeatPeriod, silent, parseMode.name), scheduled = true) {
+                arguments, chatId, listOf(text, sendAt, repeatPeriod, silent, parseMode.name) + listOfNotNull(messageThreadId), scheduled = true) {
                 // Replay remains possible after the originally requested time has passed.
                 ScheduledMessageInputs.futureEpochSeconds(arguments, "send_at")
                 telegramClient.scheduleMessage(
@@ -98,6 +104,7 @@ class ScheduleMessageTool(
                 repeatPeriodSeconds = repeatPeriod,
                 disableNotification = silent,
                 parseMode = parseMode,
+                messageThreadId = messageThreadId,
                 )
             }
         }

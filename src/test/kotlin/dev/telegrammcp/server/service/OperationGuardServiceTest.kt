@@ -3,6 +3,7 @@ package dev.telegrammcp.server.service
 import dev.telegrammcp.server.config.AntiSpamProperties
 import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.exception.ConfirmationRequiredException
+import dev.telegrammcp.server.exception.GuardrailViolationException
 import dev.telegrammcp.server.exception.ReadOnlyModeException
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Test
@@ -13,6 +14,20 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class OperationGuardServiceTest {
+
+    private val channelA = -1001111111111L
+    private val channelB = -1002222222222L
+    private val forumGroup = -1003333333333L
+
+    private fun scopedPublisher(): OperationGuardService = guard(
+        ServerModeProperties(
+            readOnly = false,
+            writeScope = ServerModeProperties.WriteScopeProps(
+                enabled = true,
+                allowedChatIds = listOf(channelA, channelB),
+            ),
+        ),
+    )
 
     private fun guard(props: ServerModeProperties): OperationGuardService {
         // Anti-spam disabled in tests so these assertions stay focused on
@@ -59,6 +74,191 @@ class OperationGuardServiceTest {
 
         assertDoesNotThrow {
             service.checkPermission("send_message", emptyMap())
+        }
+    }
+
+    @Test
+    fun `channel scope permits requested publishing mutations in either allowed channel`() {
+        val service = scopedPublisher()
+        for (tool in listOf(
+            "send_message", "reply_to_message", "send_file", "send_article", "edit_article", "schedule_message", "edit_message",
+            "reschedule_message", "cancel_scheduled_message",
+        )) {
+            assertDoesNotThrow { service.checkPermission(tool, mapOf("chat_id" to channelA)) }
+            assertDoesNotThrow { service.checkPermission(tool, mapOf("chat_id" to channelB.toString())) }
+        }
+    }
+
+    @Test
+    fun `channel scope rejects saved messages group aliases and missing targets`() {
+        val service = scopedPublisher()
+        for (target in listOf<Any?>("self", 123456789L, -1003333333333L, "@example_channel", null)) {
+            val arguments = target?.let { mapOf("chat_id" to it) } ?: emptyMap()
+            assertThrows<GuardrailViolationException> {
+                service.checkPermission("send_message", arguments)
+            }
+        }
+    }
+
+    @Test
+    fun `forum scope permits text send and schedule in any positive topic only`() {
+        val service = guard(ServerModeProperties(
+            readOnly = false,
+            writeScope = ServerModeProperties.WriteScopeProps(
+                enabled = true, allowedChatIds = listOf(channelA, channelB),
+                allowedForumChatIds = listOf(forumGroup),
+            ),
+        ))
+        for (topicId in listOf(3L, 991L, 123456L)) {
+            for (tool in listOf("send_message", "reply_to_message", "schedule_message")) {
+                assertDoesNotThrow {
+                    service.checkPermission(tool, mapOf("chat_id" to forumGroup, "message_thread_id" to topicId))
+                }
+            }
+        }
+        for (badTopic in listOf<Any?>(null, 0, -1, 3.5, "invalid", Int.MAX_VALUE.toLong() + 1)) {
+            val arguments = mutableMapOf<String, Any>("chat_id" to forumGroup)
+            if (badTopic != null) arguments["message_thread_id"] = badTopic
+            assertThrows<GuardrailViolationException> { service.checkPermission("send_message", arguments) }
+            assertThrows<GuardrailViolationException> { service.checkPermission("schedule_message", arguments) }
+            assertThrows<GuardrailViolationException> { service.checkPermission("reply_to_message", arguments) }
+        }
+        for (tool in listOf("send_file", "send_article", "edit_article", "edit_message", "reschedule_message", "cancel_scheduled_message")) {
+            assertThrows<GuardrailViolationException> {
+                service.checkPermission(tool, mapOf("chat_id" to forumGroup, "message_thread_id" to 3L))
+            }
+        }
+        assertThrows<GuardrailViolationException> {
+            service.checkPermission("send_message", mapOf("chat_id" to forumGroup, "message_thread_id" to 3L, "reply_markup" to emptyMap<String, Any>()))
+        }
+        assertThrows<GuardrailViolationException> {
+            service.checkPermission("send_message", mapOf("chat_id" to -1004444444444L, "message_thread_id" to 3L))
+        }
+    }
+
+    @Test
+    fun `saved messages rule permits only text sent to canonical self`() {
+        val service = guard(ServerModeProperties(
+            readOnly = false,
+            writeScope = ServerModeProperties.WriteScopeProps(
+                enabled = true,
+                allowedChatIds = listOf(channelA, channelB),
+                allowSavedMessagesText = true,
+            ),
+        ))
+        assertDoesNotThrow {
+            service.checkPermission("send_message", mapOf(
+                "chat_id" to "self", "text" to "Test", "parse_mode" to "html",
+            ))
+        }
+        assertDoesNotThrow {
+            service.checkPermission("reply_to_message", mapOf(
+                "chat_id" to "self", "message_id" to 42L, "text" to "Test", "parse_mode" to "html",
+            ))
+        }
+        for (tool in listOf("send_file", "send_article", "edit_article", "schedule_message", "edit_message", "delete_message")) {
+            assertThrows<GuardrailViolationException> {
+                service.checkPermission(tool, mapOf("chat_id" to "self", "text" to "Test"))
+            }
+        }
+        for (arguments in listOf(
+            mapOf("chat_id" to 123456789L, "text" to "Test"),
+            mapOf("chat_id" to "self", "text" to "Test", "message_thread_id" to 1L),
+            mapOf("chat_id" to "self", "text" to "Test", "reply_markup" to emptyMap<String, Any>()),
+        )) {
+            assertThrows<GuardrailViolationException> {
+                service.checkPermission("send_message", arguments)
+            }
+            assertThrows<GuardrailViolationException> {
+                service.checkPermission("reply_to_message", arguments + ("message_id" to 42L))
+            }
+        }
+    }
+
+    @Test
+    fun `replies do not expand chat or operation authority`() {
+        val service = scopedPublisher()
+        for (target in listOf<Any>("self", "@example_channel", 123456789L, forumGroup)) {
+            assertThrows<GuardrailViolationException> {
+                service.checkPermission("reply_to_message", mapOf("chat_id" to target, "message_id" to 42L, "text" to "Reply"))
+            }
+        }
+        assertThrows<GuardrailViolationException> {
+            service.checkPermission("reply_to_message", mapOf("chat_id" to channelA, "message_id" to 42L, "text" to "Reply", "reply_markup" to emptyMap<String, Any>()))
+        }
+        assertThrows<ReadOnlyModeException> {
+            guard(ServerModeProperties(readOnly = true)).checkPermission("reply_to_message", mapOf("chat_id" to channelA))
+        }
+    }
+
+    @Test
+    fun `channel scope rejects every other write tool even for an allowed channel`() {
+        val service = scopedPublisher()
+        for (tool in listOf("delete_message", "forward_message", "pin_message", "update_profile", "download_media")) {
+            assertThrows<GuardrailViolationException> {
+                service.checkPermission(tool, mapOf("chat_id" to channelA, "confirmed" to true))
+            }
+        }
+        assertDoesNotThrow { service.checkPermission("get_history", mapOf("chat_id" to channelA)) }
+    }
+
+    @Test
+    fun `bounded media download is a separate opt-in and does not permit other mutations`() {
+        val mode = ServerModeProperties(
+            readOnly = false,
+            writeScope = ServerModeProperties.WriteScopeProps(
+                enabled = true,
+                allowedChatIds = listOf(channelA),
+                allowMediaDownload = true,
+                mediaDownloadRoot = "/encrypted/downloads",
+            ),
+        )
+        val service = guard(mode)
+        assertDoesNotThrow {
+            service.checkPermission("download_media", mapOf("chat_id" to forumGroup, "message_id" to 42L))
+        }
+        assertThrows<GuardrailViolationException> {
+            service.checkPermission("download_media", mapOf("chat_id" to forumGroup, "message_id" to 42L, "file_path" to "/tmp/x"))
+        }
+        assertThrows<GuardrailViolationException> {
+            service.checkPermission("send_file", mapOf("chat_id" to forumGroup))
+        }
+        assertThrows<ReadOnlyModeException> {
+            guard(mode.copy(readOnly = true)).checkPermission("download_media", mapOf("chat_id" to forumGroup, "message_id" to 42L))
+        }
+    }
+
+    @Test
+    fun `channel scope permits only the fixed unread private folder mutation`() {
+        val service = scopedPublisher()
+        assertDoesNotThrow { service.checkPermission("ensure_unread_private_folder", emptyMap()) }
+        assertThrows<GuardrailViolationException> {
+            service.checkPermission("ensure_unread_private_folder", mapOf("include_groups" to true))
+        }
+        assertThrows<GuardrailViolationException> {
+            service.checkPermission("configure_chat_folder", mapOf("title" to "Anything"))
+        }
+    }
+
+    @Test
+    fun `channel scope rejects repeated scheduling while allowing one-time scheduling`() {
+        val service = scopedPublisher()
+        for (tool in listOf("schedule_message", "reschedule_message")) {
+            assertDoesNotThrow { service.checkPermission(tool, mapOf("chat_id" to channelA, "repeat_period_seconds" to 0)) }
+            assertThrows<GuardrailViolationException> {
+                service.checkPermission(tool, mapOf("chat_id" to channelA, "repeat_period_seconds" to 60))
+            }
+        }
+    }
+
+    @Test
+    fun `enabled scope with no channels denies all publishing`() {
+        val service = guard(ServerModeProperties(
+            readOnly = false,
+            writeScope = ServerModeProperties.WriteScopeProps(enabled = true),
+        ))
+        assertThrows<GuardrailViolationException> {
+            service.checkPermission("send_message", mapOf("chat_id" to channelA))
         }
     }
 

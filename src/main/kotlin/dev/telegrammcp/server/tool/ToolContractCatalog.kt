@@ -66,6 +66,21 @@ object ToolContractCatalog {
             method("getMe", "get_me")
             method("getUserProfilePhotos", "get_user_photos")
             method("getContacts", "list_contacts", "search_contacts")
+            put("inspect_chat_folder_rules", obj("folderCount" to i, "maxChosenChatsPerFolder" to i,
+                "folders" to array(obj("folderId" to i, "title" to s, "isShareable" to b, "pinnedCount" to i, "alwaysIncludedCount" to i,
+                    "alwaysExcludedCount" to i, "excludeMuted" to b, "excludeRead" to b, "excludeArchived" to b,
+                    "includeContacts" to b, "includeNonContacts" to b, "includeBots" to b, "includeGroups" to b, "includeChannels" to b))))
+            put("get_article", ArticleOutputSchemas.article)
+            method("validateArticle", "validate_article")
+            method("inspectGroupUpgrade", "inspect_group_upgrade")
+            method("upgradeGroupToSupergroup", "upgrade_group_to_supergroup")
+            method("inspectChannelActivity", "inspect_channel_activity")
+            put("find_custom_emoji", obj("setName" to s, "emoji" to s, "matches" to dto<List<CustomEmojiCandidate>>()))
+            shape("ensure_unread_private_folder", "folderId:i title:s created:b approximateChatCount:i exactChatCount:i maxChosenChatsPerFolder:i noticeAuditScannedChatCount:i registrationLastEventCount:i registrationSoleUnreadCount:i")
+            put("send_article", ToolOutputSchemas.sendResult)
+            put("send_media_album", union(array(ToolOutputSchemas.message), ToolOutputSchemas.receipt))
+            put("edit_article", ToolOutputSchemas.message)
+            put("edit_photo_post", ToolOutputSchemas.message)
             put("get_send_operation", ToolOutputSchemas.receipt)
             listOf("send_message", "reply_to_message", "send_file", "send_voice", "send_sticker",
                 "send_location", "send_venue", "send_contact").forEach { put(it, ToolOutputSchemas.sendResult) }

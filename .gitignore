@@ -42,3 +42,8 @@ tdlib-data/
 ### Python verification tools ###
 __pycache__/
 *.py[cod]
+
+.test-temp/
+
+__pycache__/
+*.py[cod]

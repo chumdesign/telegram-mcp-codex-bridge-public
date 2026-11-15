@@ -32,6 +32,7 @@ class DestructiveApprovalServiceTest {
         approval: ServerModeProperties.ApprovalMode,
         confirmationEnabled: Boolean = true,
         loopback: LoopbackApprovalServer = mockk(relaxed = true),
+        native: NativeApprovalPrompt = mockk(relaxed = true),
     ): DestructiveApprovalService {
         val props = ServerModeProperties(
             confirmation = ServerModeProperties.ConfirmationProps(
@@ -43,6 +44,7 @@ class DestructiveApprovalServiceTest {
             props,
             OperationGuardService(props, mockk(relaxed = true)),
             loopback,
+            native,
         )
     }
 
@@ -65,6 +67,7 @@ class DestructiveApprovalServiceTest {
         listOf(
             ServerModeProperties.ApprovalMode.LOOPBACK,
             ServerModeProperties.ApprovalMode.AUTO,
+            ServerModeProperties.ApprovalMode.NATIVE,
         ).forEach { mode ->
             val error = assertFailsWith<IllegalArgumentException>("$mode must reject a zero deadline") {
                 ServerModeProperties.ConfirmationProps(
@@ -532,5 +535,34 @@ class DestructiveApprovalServiceTest {
         val schema = (request.captured as McpSchema.ElicitFormRequest).requestedSchema()
         assertEquals("object", schema["type"])
         assertEquals(emptyMap<String, Any>(), schema["properties"])
+    }
+
+    @Test
+    fun `native approval is required even when caller supplies confirmed true`() {
+        val native = mockk<NativeApprovalPrompt>()
+        every { native.requireApproval(any(), any(), any()) } throws
+            ApprovalDeniedException("delete_message", "operator declined")
+        assertFailsWith<ApprovalDeniedException> {
+            service(ServerModeProperties.ApprovalMode.NATIVE, confirmationEnabled = false, native = native)
+                .requireApproval(null, "delete_message", mapOf(
+                    "chat_id" to 42L, "message_ids" to listOf(55L), "confirmed" to true,
+                ))
+        }
+        val prompt = slot<String>()
+        verify { native.requireApproval("delete_message", capture(prompt), any()) }
+        assertTrue(prompt.captured.contains("message_ids"))
+        assertFalse(prompt.captured.contains("confirmed"))
+    }
+
+    @Test
+    fun `group migration cannot bypass native approval with confirmed true`() {
+        val native = mockk<NativeApprovalPrompt>()
+        every { native.requireApproval(any(), any(), any()) } throws
+            ApprovalDeniedException("upgrade_group_to_supergroup", "operator declined")
+        assertFailsWith<ApprovalDeniedException> {
+            service(ServerModeProperties.ApprovalMode.NATIVE, confirmationEnabled = false, native = native)
+                .requireApproval(null, "upgrade_group_to_supergroup", mapOf("chat_id" to -42L, "confirmed" to true))
+        }
+        verify(exactly = 1) { native.requireApproval("upgrade_group_to_supergroup", any(), any()) }
     }
 }

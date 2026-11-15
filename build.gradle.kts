@@ -41,6 +41,8 @@ fun gitDescribe(): String? = runCatching {
 version = releaseVersionOverride?.removePrefix("v") ?: gitDescribe() ?: "0.0.0-unknown"
 description = "Production-ready MCP server for Telegram integration"
 
+// Use upstream 1.20 Spring Boot BOM for Tomcat; do not pin the older 1.16 override.
+
 // Allow builds outside synchronized folders without hard-coding a platform path.
 val buildDirOverride = providers.gradleProperty("ktm.buildDir")
     .orElse(providers.environmentVariable("KTM_BUILD_DIR"))
@@ -149,6 +151,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+    // Parse user-authored rich Articles locally: TDLib's Markdown/HTML sources are bot-only.
+    implementation("org.commonmark:commonmark:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.24.0")
+    implementation("org.jsoup:jsoup:1.21.2")
 
     // ── Observability ───────────────────────────────────────────────────────
     implementation("io.micrometer:micrometer-registry-prometheus")

@@ -35,8 +35,8 @@ class FileSecurityService(
     private val uploadSnapshotDirectory = platformPaths.applicationDataDirectory.resolve("upload-snapshots")
     private val uploadSnapshots = UploadSnapshots(
         root = uploadSnapshotDirectory,
-        maxFileBytes = props.fileSecurity.maxFileSizeBytes,
-        maxTotalBytes = props.fileSecurity.maxFileSizeBytes.coerceAtLeast(1).let {
+        maxFileBytes = if (props.writeScope.personalMode) Long.MAX_VALUE else props.fileSecurity.maxFileSizeBytes,
+        maxTotalBytes = if (props.writeScope.personalMode) Long.MAX_VALUE else props.fileSecurity.maxFileSizeBytes.coerceAtLeast(1).let {
             if (it > Long.MAX_VALUE / 4) Long.MAX_VALUE else it * 4
         },
     )
@@ -104,7 +104,8 @@ class FileSecurityService(
      * Convenience overload for the most common use case.
      */
     fun validateForUpload(rawPath: String): Path {
-        return validateForUpload(rawPath, emptySet(), props.fileSecurity.maxFileSizeBytes)
+        val maxSize = if (props.writeScope.personalMode) Long.MAX_VALUE else props.fileSecurity.maxFileSizeBytes
+        return validateForUpload(rawPath, emptySet(), maxSize)
     }
 
     /**
@@ -121,7 +122,9 @@ class FileSecurityService(
         allowedExtensions: Set<String>,
         maxSizeBytes: Long,
     ): Path {
+        if (props.fileSecurity.denySensitiveFiles) validateNotSensitive(rawPath)
         val path = validatePath(rawPath)
+        if (props.fileSecurity.denySensitiveFiles) validateNotSensitive(path.toString())
 
         // Extension check
         if (allowedExtensions.isNotEmpty()) {
@@ -227,6 +230,18 @@ class FileSecurityService(
     }
 
     // ── Internal validation steps ───────────────────────────────────────────
+
+    private fun validateNotSensitive(rawPath: String) {
+        val segments = rawPath.replace('\\', '/').lowercase().split('/')
+        val secretDirectories = setOf(".codex", ".telegram-mcp-reader", ".ssh", ".aws", ".azure", ".git")
+        val filename = segments.last()
+        val secretExtensions = setOf("key", "pem", "pfx", "p12", "kdbx", "session", "db", "sqlite", "sqlite3", "xml")
+        if (segments.any { it in secretDirectories } || filename.startsWith(".env") ||
+            filename.substringAfterLast('.', "") in secretExtensions ||
+            Regex("(credentials|secrets?|tokens?|passwords?|api[-_]?keys?|shared-http-key)").containsMatchIn(filename)) {
+            throw FileSecurityException("Credential, session and secret files cannot be uploaded")
+        }
+    }
 
     private fun validateCharacters(rawPath: String) {
         for (ch in rawPath) {

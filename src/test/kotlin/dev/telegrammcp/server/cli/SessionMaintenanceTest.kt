@@ -177,9 +177,14 @@ class SessionMaintenanceTest {
         val outside = Files.createDirectory(tempDir.resolve("outside"))
         val linked = runCatching { Files.createSymbolicLink(tempDir.resolve("tdlib-backups"), outside) }.isSuccess
         org.junit.jupiter.api.Assumptions.assumeTrue(linked, "Creating symbolic links is unavailable")
-        assertThrows<IllegalStateException> { SessionMaintenance(tempDir, emptyMap()).clear("default", true) }
-        assertEquals(16L, Files.size(original.resolve("td.binlog")))
-        assertEquals(emptyList(), Files.list(outside).use { it.toList() })
+        try {
+            assertThrows<IllegalStateException> { SessionMaintenance(tempDir, emptyMap()).clear("default", true) }
+            assertEquals(16L, Files.size(original.resolve("td.binlog")))
+            assertEquals(emptyList(), Files.list(outside).use { it.toList() })
+        } finally {
+            // Remove the directory link while its target still exists (Windows cleanup order).
+            Files.deleteIfExists(tempDir.resolve("tdlib-backups"))
+        }
     }
 
     private fun <T> holding(file: Path, action: () -> T): T =

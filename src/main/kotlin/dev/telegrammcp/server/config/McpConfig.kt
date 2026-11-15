@@ -73,7 +73,7 @@ class McpConfig {
         }
         val hiddenCount = definitions.size - visibleDefinitions.size
 
-        val riskPolicy = OperationGuardService.RiskPolicy(serverMode.confirmation)
+        val riskPolicy = OperationGuardService.RiskPolicy(serverMode.confirmation, serverMode.writeScope.personalMode)
         return visibleDefinitions.map { (handler, definition) ->
             val tool = withBehaviorAnnotations(
                 withAccountSelector(definition, handler is AccountAgnosticMcpToolHandler, registry),

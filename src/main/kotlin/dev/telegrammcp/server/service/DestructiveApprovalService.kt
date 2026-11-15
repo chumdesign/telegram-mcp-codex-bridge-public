@@ -38,6 +38,7 @@ class DestructiveApprovalService(
     private val props: ServerModeProperties,
     private val operationGuardService: OperationGuardService,
     injectedLoopbackServer: LoopbackApprovalServer? = null,
+    private val nativePrompt: NativeApprovalPrompt = NativeApprovalPrompt(),
 ) {
 
     /**
@@ -86,6 +87,7 @@ class DestructiveApprovalService(
         ApprovalMode.AUTO ->
             "asked through the MCP host when it supports elicitation, otherwise on a loopback page " +
                 loopbackDelivery()
+        ApprovalMode.NATIVE -> "asked in an OS confirmation dialog"
     }
 
     /**
@@ -122,17 +124,23 @@ class DestructiveApprovalService(
         if (!isEnabled()) return
         // Scope-based, not destructive-only: forwarding a chat out or granting
         // admin rights needs a person's answer as much as a delete does.
-        if (!operationGuardService.requiresHumanApproval(toolName)) return
+        if (!operationGuardService.needsHumanApproval(toolName, arguments)) return
 
         val description = describe(arguments)
         // Waiting for a human must not use up the Telegram request budget of the call.
-        dev.telegrammcp.server.client.ToolCallDeadline.excluding { requireMode(exchange, toolName, description) }
+        dev.telegrammcp.server.client.ToolCallDeadline.excluding { requireMode(exchange, toolName, description, arguments) }
         log.info("{} tool '{}' approved by the operator", riskWord(toolName), toolName)
     }
 
-    private fun requireMode(exchange: McpSyncServerExchange?, toolName: String, description: String) {
+    private fun requireMode(exchange: McpSyncServerExchange?, toolName: String, description: String, arguments: Map<String, Any>) {
         when (props.confirmation.approval) {
             ApprovalMode.OFF -> return
+            ApprovalMode.NATIVE -> {
+                val snapshot = com.fasterxml.jackson.module.kotlin.jacksonObjectMapper()
+                    .writeValueAsString(arguments - "confirmed")
+                if (snapshot.length > 4096) throw ApprovalDeniedException(toolName, "too many parameters for an unambiguous confirmation")
+                nativePrompt.requireApproval(toolName, snapshot, props.confirmation.approvalTimeout)
+            }
             ApprovalMode.ELICITATION -> requireElicitation(exchange, toolName, description)
             ApprovalMode.LOOPBACK -> requireLoopback(toolName, description)
             ApprovalMode.AUTO ->

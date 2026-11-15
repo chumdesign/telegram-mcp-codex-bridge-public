@@ -1,4 +1,4 @@
-﻿# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 # Telegram MCP Server — Application Configuration
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -138,6 +138,7 @@ telegram:
   security:
     # Comma-separated list of allowed chat IDs (empty = all allowed)
     allowed-chat-ids: ${TELEGRAM_ALLOWED_CHAT_IDS:}
+    blocked-chat-ids: ${TELEGRAM_BLOCKED_CHAT_IDS:}
     # Chats write tools may change. Empty follows the read allow-list.
     # A non-empty list narrows writes and does not grant extra chats.
     mutation-allowed-chat-ids: ${TELEGRAM_MUTATION_CHAT_IDS:}
@@ -198,6 +199,7 @@ mcp:
       - local-first
   guardrails:
     max-tool-input-length: 4096
+    max-rich-tool-input-length: 32768
     # Optional operator-defined input denylist. Empty by default: model prompt
     # injection policy belongs to the MCP host that consumes untrusted output.
     blocked-patterns: []
@@ -206,6 +208,17 @@ mcp:
 server-mode:
   # When true, all write/mutating tools are blocked (messages, contacts, media upload)
   read-only: ${MCP_READ_ONLY:true}
+  write-scope:
+    # Optional server-side boundary for a narrow channel publisher. Empty IDs
+    # deny all writes when enabled. Other write tools remain blocked.
+    enabled: ${MCP_WRITE_SCOPE_ENABLED:false}
+    personal-mode: ${MCP_PERSONAL_MODE:false}
+    allowed-chat-ids: ${MCP_WRITABLE_CHAT_IDS:}
+    allow-saved-messages-text: ${MCP_WRITE_SCOPE_ALLOW_SAVED_MESSAGES_TEXT:false}
+    allowed-forum-chat-ids: ${MCP_WRITABLE_FORUM_CHAT_IDS:}
+    allow-media-download: ${MCP_WRITE_SCOPE_ALLOW_MEDIA_DOWNLOAD:false}
+    media-download-root: ${MCP_MEDIA_DOWNLOAD_ROOT:}
+    max-media-download-bytes: ${MCP_MAX_MEDIA_DOWNLOAD_BYTES:52428800}
   read-only-allow-downloads: ${MCP_READ_ONLY_ALLOW_DOWNLOADS:false}
   confirmation:
     # Caller acknowledgement for destructive tools. This does not prove that
@@ -249,7 +262,8 @@ server-mode:
     # Maximum file size for uploads in bytes (default 200MB)
     max-file-size-bytes: 209715200
     # Allowed file extensions for uploads (empty = all allowed)
-    allowed-extensions: []
+    allowed-extensions: ${MCP_FILE_EXTENSIONS:}
+    deny-sensitive-files: ${MCP_DENY_SENSITIVE_FILES:false}
   audit:
     # When true, all tool invocations are logged to the audit log
     enabled: ${MCP_AUDIT_ENABLED:true}

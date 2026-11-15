@@ -69,11 +69,13 @@ class ToolSurfacePolicy(
         )
 
         private val MEDIA_TOOLS = setOf(
-            "get_media_info", "download_media", "send_file", "send_voice",
-            "transcribe_voice_note", "send_sticker", "get_sticker_sets", "send_album",
+            "find_custom_emoji", "get_media_info", "get_article", "validate_article", "download_media", "send_file", "send_media_album", "send_article", "edit_article", "edit_photo_post", "send_voice",
+            "transcribe_voice_note", "send_sticker", "get_sticker_sets",
+            "send_album",
         )
 
         private val INBOX_TOOL_NAMES = META_TOOLS + MESSAGE_TOOLS + MEDIA_TOOLS + setOf(
+            "inspect_channel_activity",
             "list_chats", "get_chat", "list_chat_folders", "get_chat_folder",
             "get_me", "list_contacts", "search_contacts", "resolve_username", "get_user_status",
             "get_user_photos", "get_last_interaction", "add_contact", "delete_contact",
@@ -83,8 +85,10 @@ class ToolSurfacePolicy(
         )
 
         private val COMMUNITY_ADMIN_TOOL_NAMES = META_TOOLS + MESSAGE_TOOLS + MEDIA_TOOLS + setOf(
+            "inspect_channel_activity",
             "list_chats", "get_chat", "get_participants", "get_admins", "get_banned_users",
             "get_recent_actions", "create_group", "create_channel", "create_supergroup",
+            "inspect_group_upgrade", "upgrade_group_to_supergroup",
             "invite_to_group", "leave_chat", "ban_user", "unban_user", "promote_admin",
             "demote_admin", "edit_chat_title", "edit_chat_photo", "delete_chat_photo",
             "set_chat_description", "set_slow_mode",
@@ -97,9 +101,11 @@ class ToolSurfacePolicy(
         )
 
         private val RESEARCH_TOOL_NAMES = META_TOOLS + setOf(
+            "inspect_channel_activity",
             "get_history", "get_messages", "search_messages", "search_global", "get_message_context",
-            "get_pinned_messages", "get_message_reactions", "message_from_link", "get_message_link", "get_media_info",
+            "get_pinned_messages", "get_message_reactions", "message_from_link", "get_message_link", "get_article", "validate_article", "get_media_info",
             "download_media", "list_chats", "get_chat", "get_participants", "get_admins",
+            "inspect_group_upgrade",
             "get_banned_users", "get_recent_actions", "search_public_chats", "discover_public_chats",
             "search_public_messages", "export_chat_history", "export_job", "conversation_bundle", "changes_since", "wait_for_changes",
             "resolve_username", "get_user_status", "get_user_photos",

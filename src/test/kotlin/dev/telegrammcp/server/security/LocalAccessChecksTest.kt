@@ -43,13 +43,22 @@ class LocalAccessChecksTest {
     fun `windows shared write grants are rejected while deny entries do not grant writes`() {
         val file = Files.createFile(tempDir.resolve("windows-secret"))
         val view = Files.getFileAttributeView(file, AclFileAttributeView::class.java) ?: return
-        val users = file.fileSystem.userPrincipalLookupService.lookupPrincipalByGroupName("BUILTIN\\Users")
+        LocalAccessChecks.prepareOwnerDirectory(tempDir)
+        // Resolve the well-known SID instead of assuming English Windows group names.
+        val process = ProcessBuilder("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+            "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); ([Security.Principal.SecurityIdentifier]'S-1-5-32-545').Translate([Security.Principal.NTAccount]).Value")
+            .redirectErrorStream(true).start()
+        val usersName = process.inputStream.bufferedReader(Charsets.UTF_8).readText().trim()
+        assertEquals(0, process.waitFor(), usersName)
+        val users = file.fileSystem.userPrincipalLookupService.lookupPrincipalByGroupName(usersName)
         val original = view.acl
+        val privateAcl = listOf(AclEntry.newBuilder().setType(AclEntryType.ALLOW)
+            .setPrincipal(view.owner).setPermissions(AclEntryPermission.values().toSet()).build())
         val entry = AclEntry.newBuilder().setPrincipal(users).setPermissions(AclEntryPermission.WRITE_DATA)
         try {
-            view.acl = original + entry.setType(AclEntryType.DENY).build()
+            view.acl = privateAcl + entry.setType(AclEntryType.DENY).build()
             LocalAccessChecks.rejectSharedWrite(file, "test secret")
-            view.acl = original + entry.setType(AclEntryType.ALLOW).build()
+            view.acl = privateAcl + entry.setType(AclEntryType.ALLOW).build()
             assertThrows<IllegalArgumentException> { LocalAccessChecks.rejectSharedWrite(file, "test secret") }
         } finally {
             view.acl = original

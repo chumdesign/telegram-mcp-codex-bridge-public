@@ -130,6 +130,7 @@ class AccessPermissionService(props: McpSecurityProperties, paths: PlatformPaths
             "get_invite_link", "get_participants", "get_recent_actions", "list_invite_links", "revoke_invite_link",
             "invite_to_group", "leave_chat", "list_chats", "list_topics", "search_public_chats", "set_chat_description",
             "set_forum_topics_enabled", "set_slow_mode", "subscribe_public_channel", "clear_draft", "get_drafts", "save_draft",
+            "get_article", "send_article", "edit_article", "edit_photo_post", "send_media_album",
             "download_media", "get_media_info", "send_file", "send_sticker", "send_voice", "transcribe_voice_note",
             "create_poll", "delete_message", "edit_message", "forward_message", "get_history", "get_message_context",
             "get_message_link", "get_message_reactions", "get_messages", "get_message_viewers", "get_pinned_messages",

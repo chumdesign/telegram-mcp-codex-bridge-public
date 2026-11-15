@@ -57,7 +57,7 @@ class ScheduledMessageToolsTest {
         val future = Instant.now().plusSeconds(600)
         every { entityResolver.resolve(42 as Any) } returns 42L
         every {
-            telegramClient.scheduleMessage(42L, "planned", future.epochSecond.toInt(), 0, false, ParseMode.PLAIN)
+            telegramClient.scheduleMessage(42L, "planned", future.epochSecond.toInt(), 0, false, ParseMode.PLAIN, null)
         } returns scheduled(42L)
 
         val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "planned", "send_at" to future.toString()))
@@ -76,7 +76,37 @@ class ScheduledMessageToolsTest {
         val result = tool.executeChecked(exchange, mapOf("chat_id" to 42, "text" to "planned", "send_at" to 1))
 
         assertTrue(result.isError)
-        verify(exactly = 0) { telegramClient.scheduleMessage(any(), any(), any(), any(), any(), any()) }
+        verify(exactly = 0) { telegramClient.scheduleMessage(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `schedules into an explicit forum topic`() {
+        val tool = ScheduleMessageTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        val future = Instant.now().plusSeconds(600)
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every {
+            telegramClient.scheduleMessage(42L, "planned", future.epochSecond.toInt(), 0, false, ParseMode.PLAIN, 3L)
+        } returns scheduled(42L)
+
+        val result = tool.execute(exchange, mapOf(
+            "chat_id" to 42, "message_thread_id" to 3, "text" to "planned", "send_at" to future.toString(),
+        ))
+
+        assertFalse(result.isError)
+        verify { telegramClient.scheduleMessage(42L, "planned", future.epochSecond.toInt(), 0, false, ParseMode.PLAIN, 3L) }
+    }
+
+    @Test
+    fun `rejects out-of-range forum topic before Telegram is called`() {
+        val tool = ScheduleMessageTool(telegramClient, entityResolver, guardrails, operationGuard, audit, mapper, SimpleMeterRegistry())
+        val future = Instant.now().plusSeconds(600)
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        val result = tool.execute(exchange, mapOf(
+            "chat_id" to 42, "message_thread_id" to Int.MAX_VALUE.toLong() + 1,
+            "text" to "planned", "send_at" to future.toString(),
+        ))
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.scheduleMessage(any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test

@@ -87,6 +87,8 @@ data class McpSecurityProperties(
 
     data class GuardrailProps(
         val maxToolInputLength: Int = 4096,
+        /** Separate bound for Telegram's native Rich Messages; plain tools keep the smaller limit. */
+        val maxRichToolInputLength: Int = 32768,
         val blockedPatterns: List<String> = emptyList(),
     )
 }

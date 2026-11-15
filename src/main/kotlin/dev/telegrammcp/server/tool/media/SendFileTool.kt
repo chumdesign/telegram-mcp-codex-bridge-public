@@ -55,6 +55,11 @@ class SendFileTool(
               "type": "string",
               "description": "Local file path to upload (must be within allowed roots)"
             },
+            "media_type": {"type":"string","enum":["auto","photo","document","video","audio"],"description":"Default auto: JPG/PNG as a photo, PDF and other files as documents; use document explicitly for an original image file"},
+            "parse_mode": {"type":"string","enum":["plain","html","markdown"]},
+            "message_thread_id": {"type":["string","integer"],"description":"Destination forum topic ID"},
+            "reply_to_message_id": {"type":["string","integer"],"description":"Native TDLib message ID, validated in the destination topic"},
+            "send_at": {"type":["string","integer"],"description":"Future ISO-8601 instant or Unix seconds; omit for immediate delivery"},
             "caption": {
               "type": "string",
               "description": "Optional caption for the file"
@@ -67,7 +72,7 @@ class SendFileTool(
 
     override fun definition(): McpSchema.Tool = ToolSupport.definition(
         TOOL_NAME,
-        "Send a local file to a Telegram chat (validated against security policy)",
+        "Send a photo, document, video or audio; supports forum topics, replies and scheduling",
         INPUT_SCHEMA,
         objectMapper,
     )
@@ -99,12 +104,14 @@ class SendFileTool(
                 guardrailService.validateInput(caption)
             }
 
-            val sourcePath = fileSecurityService.validateForUpload(rawFilePath)
-            fileSecurityService.withStagedUpload(rawFilePath) { staged ->
+            val upload = MediaArguments.upload(arguments, fileSecurityService, guardrailService)
+            val options = MediaArguments.options(arguments)
+            fileSecurityService.withStagedUpload(upload.filePath) { staged ->
                 dev.telegrammcp.server.tool.RecoverableSend.execute(sendOperations, operationGuardService, TOOL_NAME,
-                    arguments, chatId, listOf(sourcePath.toString(), caption,
-                        dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, staged))) {
-                    telegramClient.sendFile(chatId, staged.toString(), caption)
+                    arguments, chatId, listOf(upload, options,
+                        dev.telegrammcp.server.tool.RecoverableSend.fileFingerprint(arguments, staged)),
+                    scheduled = options.sendAtEpochSeconds != null) {
+                    telegramClient.sendMediaFile(chatId, upload.copy(filePath = staged.toString()), options)
                 }
             }
     }

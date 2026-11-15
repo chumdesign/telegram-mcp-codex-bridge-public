@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.model
+package dev.telegrammcp.server.model
 
 import java.time.Instant
 
@@ -35,6 +35,8 @@ data class TelegramMessage(
     val mediaType: String? = null,
     val forwardFrom: String? = null,
     val poll: TelegramPoll? = null,
+    val customEmojiIds: List<Long> = emptyList(),
+    val links: List<TelegramTextLink> = emptyList(),
     val isOutgoing: Boolean = false,
     /** Null when the message has never been edited. */
     val editDate: Instant? = null,
@@ -329,6 +331,14 @@ data class StickerSetInfo(
     val isOwned: Boolean,
 )
 
+/** A custom emoji from a named set whose HTML entity was verified by TDLib. */
+data class CustomEmojiCandidate(
+    val customEmojiId: Long,
+    val emoji: String,
+    val setName: String,
+    val setTitle: String,
+)
+
 /** Persisted draft message on a chat. */
 data class DraftInfo(
     val chatId: Long,
@@ -379,6 +389,13 @@ data class ChatFolderListing(
     val mainChatListPosition: Int = 0,
     val tagsEnabled: Boolean = false,
     val initialized: Boolean = false,
+)
+
+/** Aggregate-only inspection of registration notices in one loaded chat folder. */
+data class JoinNoticeAudit(
+    val scannedChatCount: Int,
+    val registrationLastEventCount: Int,
+    val registrationSoleUnreadCount: Int,
 )
 
 /** A queued Telegram message and its scheduling mode. */
@@ -512,3 +529,6 @@ data class ChatStatisticsSummary(
     val topAdministrators: List<ChatStatisticsTopAdministrator> = emptyList(),
     val topInviters: List<ChatStatisticsTopInviter> = emptyList(),
 )
+
+/** A link in text or caption, using UTF-16 offsets. */
+data class TelegramTextLink(val text: String, val url: String, val offset: Int, val length: Int)

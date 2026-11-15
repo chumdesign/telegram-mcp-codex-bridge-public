@@ -45,6 +45,7 @@ sealed class AuthState(val name: String) {
     /** 2FA password required. */
     data class WaitingPassword(
         val passwordHint: String = "",
+        val errorMessage: String? = null,
         override val timestamp: Instant = Instant.now(),
     ) : AuthState("waitingPassword")
 

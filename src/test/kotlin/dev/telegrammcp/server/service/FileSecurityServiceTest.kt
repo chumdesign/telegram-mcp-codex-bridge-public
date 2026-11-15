@@ -21,6 +21,20 @@ class FileSecurityServiceTest {
     @TempDir
     lateinit var tempDir: Path
 
+    @Test
+    fun `personal upload policy blocks credential files inside an allowed root`() {
+        val service = FileSecurityService(ServerModeProperties(fileSecurity =
+            ServerModeProperties.FileSecurityProps(allowedRoots = listOf(tempDir.toString()), denySensitiveFiles = true)))
+        for (name in listOf(".env", "api-credentials.xml", "secret.pem", "shared-http-key.txt")) {
+            val path = tempDir.resolve(name)
+            Files.writeString(path, "test data")
+            assertThrows<FileSecurityException> { service.validateForUpload(path.toString()) }
+        }
+        val ordinary = tempDir.resolve("photo.jpg")
+        Files.writeString(ordinary, "image bytes")
+        assertEquals(ordinary.toRealPath(), service.validateForUpload(ordinary.toString()))
+    }
+
     private fun serviceWithRoots(vararg roots: String): FileSecurityService {
         val props = ServerModeProperties(
             fileSecurity = ServerModeProperties.FileSecurityProps(

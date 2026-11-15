@@ -62,6 +62,9 @@ class AntiSpamGuardService(
             maxOps = 1, windowMs = 60_000L,
             dailyMax = 5,
         ),
+        "upgrade_group_to_supergroup" to RuleProps(
+            maxOps = 1, windowMs = 60_000L, keyField = "chat_id", dailyMax = 5,
+        ),
         "create_topic" to RuleProps(
             maxOps = 5, windowMs = 60_000L,
             keyField = "chat_id",
@@ -113,6 +116,19 @@ class AntiSpamGuardService(
             maxOpsExternal = 3, windowMsExternal = 60_000L,
             keyField = "chat_id",
         ),
+        "send_media_album" to RuleProps(
+            maxOps = 5, windowMs = 60_000L,
+            maxOpsExternal = 2, windowMsExternal = 60_000L,
+            keyField = "chat_id",
+        ),
+        "send_article" to RuleProps(
+            maxOps = 10, windowMs = 60_000L,
+            maxOpsExternal = 3, windowMsExternal = 60_000L,
+            keyField = "chat_id",
+            dedupTextField = "text", dedupWindowMs = 60_000L,
+        ),
+        "edit_article" to RuleProps(maxOps = 20, windowMs = 60_000L, keyField = "chat_id"),
+        "edit_photo_post" to RuleProps(maxOps = 20, windowMs = 60_000L, keyField = "chat_id"),
         "send_voice" to RuleProps(
             maxOps = 10, windowMs = 60_000L,
             maxOpsExternal = 3, windowMsExternal = 60_000L,

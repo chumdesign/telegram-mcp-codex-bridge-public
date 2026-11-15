@@ -98,7 +98,7 @@ class ReplyToMessageToolTest {
         )
 
         assertTrue(result.isError)
-        verify(exactly = 0) { telegramClient.replyToMessage(any(), any(), any(), any()) }
+        verify(exactly = 0) { telegramClient.replyToMessage(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -229,6 +229,43 @@ class ReplyToMessageToolTest {
         assertTrue(result.isError)
         val text = (result.content.first() as McpSchema.TextContent).text()
         assertTrue(text.contains("text must not be blank"))
+    }
+
+    @Test
+    fun `passes explicit forum topic to the client`() {
+        val reply = TelegramMessage(101, 42, "Test", "Me", text = "Reply", date = Instant.now(), replyToMessageId = 55, messageThreadId = 991)
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.replyToMessage(42L, 55L, "Reply", ParseMode.PLAIN, 991L) } returns reply
+
+        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to "55", "text" to "Reply", "message_thread_id" to "991"))
+
+        assertFalse(result.isError)
+        verify { telegramClient.replyToMessage(42L, 55L, "Reply", ParseMode.PLAIN, 991L) }
+    }
+
+    @Test
+    fun `invalid reply and topic IDs are rejected without sending`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        for (invalidId in listOf<Any>(0, -1, 1.5, "invalid", "9223372036854775808", true)) {
+            val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to invalidId, "text" to "Reply"))
+            assertTrue(result.isError)
+        }
+        for (invalidTopic in listOf<Any>(0, -1, 3.5, "invalid", Int.MAX_VALUE.toLong() + 1)) {
+            val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 55, "text" to "Reply", "message_thread_id" to invalidTopic))
+            assertTrue(result.isError)
+        }
+        verify(exactly = 0) { telegramClient.replyToMessage(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `chat access refusal prevents a reply`() {
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { guardrailService.validateChatAccess(42L) } throws IllegalStateException("Access denied")
+
+        val result = tool.execute(exchange, mapOf("chat_id" to 42, "message_id" to 55, "text" to "Reply"))
+
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.replyToMessage(any(), any(), any(), any(), any()) }
     }
 
     @Test

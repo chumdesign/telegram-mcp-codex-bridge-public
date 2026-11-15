@@ -40,6 +40,7 @@ class TdLibClientService(
     bulkhead: Bulkhead = accountBulkhead("telegram", requestSettings),
     /** Decides whether a full request timeout counts toward [circuitBreaker]. */
     internal val timeoutHealth: TdLibTimeoutHealth = TdLibTimeoutHealth.alwaysCounting(),
+    editBackupStore: EditBackupStore = EditBackupStore(),
 ) : TelegramClientService {
 
     private val support = TdLibClientSupport(
@@ -50,7 +51,41 @@ class TdLibClientService(
     private val messages = TdLibMessageAdapter(support, reads)
     private val admin = TdLibAdminAdapter(support, reads)
 
+    private val codex = CodexTdLibAdapter(support, editBackupStore)
+    private val channelActivity = ChannelActivityReader { request ->
+        support.withResilience("inspectChannelActivity") {
+            try { support.send<TdApi.Object>(request) }
+            catch (error: TelegramApiException) {
+                if (request is TdApi.LoadChats && error.errorCode == 404) TdApi.Error(404, "END_OF_CHAT_LIST") else throw error
+            }
+        }
+    }
+    private val groupUpgrades = GroupUpgradeOperations { request -> support.withResilience("groupUpgrade") { support.send<TdApi.Object>(request) } }
+    override fun inspectChannelActivity(offset: Int, limit: Int) = channelActivity.read(offset, limit)
+    override fun inspectGroupUpgrade(chatId: Long) = groupUpgrades.inspect(chatId)
+    override fun upgradeGroupToSupergroup(chatId: Long) = groupUpgrades.upgrade(chatId)
+    override fun getChatFolderChatCount(folder: ChatFolderDefinition) = codex.getChatFolderChatCount(folder)
+    override fun getExactChatFolderChatCount(folderId: Int) = codex.getExactChatFolderChatCount(folderId)
+    override fun getChatFolderChosenChatCountMax() = codex.getChatFolderChosenChatCountMax()
+    override fun inspectChatFolderJoinNotices(folderId: Int) = codex.inspectChatFolderJoinNotices(folderId)
+    override fun getArticle(chatId: Long, messageId: Long) = codex.getArticle(chatId, messageId)
+    override fun getArticleLimits() = codex.getArticleLimits()
+    override fun validateArticle(draft: ArticleDraft) = codex.validateArticle(draft)
+    override fun sendArticle(chatId: Long, text: String, photoPath: String, sendAtEpochSeconds: Int?) = codex.sendArticle(chatId, text, photoPath, sendAtEpochSeconds)
+    override fun sendArticle(chatId: Long, draft: ArticleDraft, sendAtEpochSeconds: Int?) = codex.sendArticle(chatId, draft, sendAtEpochSeconds)
+    override fun editArticle(chatId: Long, messageId: Long, draft: ArticleDraft) = codex.editArticle(chatId, messageId, draft)
+    override fun editPhotoPost(chatId: Long, messageId: Long, photoPath: String?, caption: String?, parseMode: ParseMode) = codex.editPhotoPost(chatId, messageId, photoPath, caption, parseMode)
+    override fun sendMediaFile(chatId: Long, upload: MediaUpload, options: MediaSendOptions) = codex.sendMediaFile(chatId, upload, options)
+    override fun sendMediaAlbum(chatId: Long, uploads: List<MediaUpload>, options: MediaSendOptions) = codex.sendMediaAlbum(chatId, uploads, options)
+    override fun findCustomEmoji(setName: String, emoji: String) = codex.findCustomEmoji(setName, emoji)
+
     companion object {
+        internal fun isSoleUnreadRegistrationNotice(chat: TdApi.Chat): Boolean {
+            val last = chat.lastMessage ?: return false
+            return last.content is TdApi.MessageContactRegistered && chat.unreadCount == 1 && !chat.isMarkedAsUnread &&
+                last.id > chat.lastReadInboxMessageId && !last.isOutgoing
+        }
+
         /**
          * Per-account bulkhead (see [TdLibProperties.Requests.maxConcurrentCalls]).
          * It fails fast instead of queueing: a waiting caller would only hold a
@@ -115,14 +150,14 @@ class TdLibClientService(
     override fun getChatJoinRequests(chatId: Long, query: String, inviteLink: String, limit: Int): ChatJoinRequestList = reads.getChatJoinRequests(chatId, query, inviteLink, limit)
     override fun getChatStatistics(chatId: Long): ChatStatisticsSummary = reads.getChatStatistics(chatId)
     override fun sendMessage(chatId: Long, text: String, parseMode: ParseMode, replyMarkup: ReplyMarkupSpec?, messageThreadId: Long?): TelegramMessage = messages.sendMessage(chatId, text, parseMode, replyMarkup, messageThreadId)
-    override fun replyToMessage(chatId: Long, replyToMessageId: Long, text: String, parseMode: ParseMode): TelegramMessage = messages.replyToMessage(chatId, replyToMessageId, text, parseMode)
-    override fun editMessage(chatId: Long, messageId: Long, text: String, parseMode: ParseMode): TelegramMessage = messages.editMessage(chatId, messageId, text, parseMode)
+    override fun replyToMessage(chatId: Long, replyToMessageId: Long, text: String, parseMode: ParseMode, messageThreadId: Long?): TelegramMessage = codex.replyToMessage(chatId, replyToMessageId, text, parseMode, messageThreadId)
+    override fun editMessage(chatId: Long, messageId: Long, text: String, parseMode: ParseMode): TelegramMessage = codex.editMessage(chatId, messageId, text, parseMode)
     override fun sendFile(chatId: Long, filePath: String, caption: String?): TelegramMessage = messages.sendFile(chatId, filePath, caption)
     override fun deleteMessages(chatId: Long, messageIds: List<Long>, revoke: Boolean): Boolean = messages.deleteMessages(chatId, messageIds, revoke)
     override fun forwardMessages(fromChatId: Long, toChatId: Long, messageIds: List<Long>): List<TelegramMessage> = messages.forwardMessages(fromChatId, toChatId, messageIds)
     override fun pinMessage(chatId: Long, messageId: Long, disableNotification: Boolean): Boolean = messages.pinMessage(chatId, messageId, disableNotification)
     override fun unpinMessage(chatId: Long, messageId: Long): Boolean = messages.unpinMessage(chatId, messageId)
-    override fun scheduleMessage(chatId: Long, text: String, sendAtEpochSeconds: Int, repeatPeriodSeconds: Int, disableNotification: Boolean, parseMode: ParseMode): ScheduledMessage = messages.scheduleMessage(chatId, text, sendAtEpochSeconds, repeatPeriodSeconds, disableNotification, parseMode)
+    override fun scheduleMessage(chatId: Long, text: String, sendAtEpochSeconds: Int, repeatPeriodSeconds: Int, disableNotification: Boolean, parseMode: ParseMode, messageThreadId: Long?): ScheduledMessage = codex.scheduleMessage(chatId, text, sendAtEpochSeconds, repeatPeriodSeconds, disableNotification, parseMode, messageThreadId)
     override fun rescheduleMessage(chatId: Long, messageId: Long, sendAtEpochSeconds: Int, repeatPeriodSeconds: Int): ScheduledMessage = messages.rescheduleMessage(chatId, messageId, sendAtEpochSeconds, repeatPeriodSeconds)
     override fun cancelScheduledMessage(chatId: Long, messageId: Long): Boolean = messages.cancelScheduledMessage(chatId, messageId)
     override fun addReaction(chatId: Long, messageId: Long, emoji: String, isBig: Boolean): Boolean = messages.addReaction(chatId, messageId, emoji, isBig)

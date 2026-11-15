@@ -71,6 +71,7 @@ class TelegramAuthOrchestrator(
     /** The account this wizard signs in (its TDLib database and breaker health are keyed by it). */
     private val accountLabel: String get() = if (authWizard.enabled) authWizard.accountLabel else "default"
     private val lock = ReentrantLock()
+    private val passwordSubmitter = TelegramPasswordSubmitter(authStateHolder)
 
     /** How long an auth-phase request may take before we stop waiting on it. */
     private val AUTH_REQUEST_TIMEOUT_SECONDS = 10L
@@ -262,6 +263,18 @@ class TelegramAuthOrchestrator(
      * back. Telegram picks the next channel itself; `nextCodeChannel` in the
      * published state says which one it will be.
      */
+    fun submitPassword(password: String): String? = passwordSubmitter.submit(password) { value ->
+        val client = lock.withLock { currentClient }
+            ?: throw IllegalStateException("TDLib client is not initialized")
+        val response = java.util.concurrent.CompletableFuture<TdApi.Error?>()
+        // Authorization requests must bypass the ready-only send gate. The
+        // interaction's one-shot future cannot support a rejected-password retry.
+        client.sendUnsafe(TdApi.CheckAuthenticationPassword(value), { result ->
+            response.complete(if (result.isError) result.error else null)
+        }, { error -> response.completeExceptionally(error) })
+        response
+    }
+
     fun resendCode(): String? {
         val client = lock.withLock { currentClient }
             ?: throw IllegalStateException("TDLib client is not initialized. Call /auth/credentials first.")

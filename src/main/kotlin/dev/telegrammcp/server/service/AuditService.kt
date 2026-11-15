@@ -116,6 +116,9 @@ class AuditService(
 
             // Manage chats
             "create_group" to AuditCategory.MANAGE_CHAT,
+            "inspect_group_upgrade" to AuditCategory.READ_CHAT,
+            "inspect_channel_activity" to AuditCategory.READ_CHAT,
+            "upgrade_group_to_supergroup" to AuditCategory.MANAGE_CHAT,
             "invite_to_group" to AuditCategory.MANAGE_CHAT,
             "leave_chat" to AuditCategory.MANAGE_CHAT,
             "ban_user" to AuditCategory.MANAGE_CHAT,
@@ -132,6 +135,8 @@ class AuditService(
             "list_chat_folders" to AuditCategory.READ_CHAT,
             "get_chat_folder" to AuditCategory.READ_CHAT,
             "configure_chat_folder" to AuditCategory.MANAGE_CHAT,
+            "ensure_unread_private_folder" to AuditCategory.MANAGE_CHAT,
+            "inspect_chat_folder_rules" to AuditCategory.READ_CHAT,
             "delete_chat_folder" to AuditCategory.MANAGE_CHAT,
             "reorder_chat_folders" to AuditCategory.MANAGE_CHAT,
             "get_group_permissions" to AuditCategory.READ_CHAT,
@@ -162,7 +167,13 @@ class AuditService(
             // Media
             "download_media" to AuditCategory.MEDIA_DOWNLOAD,
             "get_media_info" to AuditCategory.MEDIA_DOWNLOAD,
+            "get_article" to AuditCategory.MEDIA_DOWNLOAD,
+            "validate_article" to AuditCategory.READ_MESSAGE,
             "send_file" to AuditCategory.MEDIA_UPLOAD,
+            "send_media_album" to AuditCategory.MEDIA_UPLOAD,
+            "send_article" to AuditCategory.MEDIA_UPLOAD,
+            "edit_article" to AuditCategory.EDIT_MESSAGE,
+            "edit_photo_post" to AuditCategory.EDIT_MESSAGE,
             "send_album" to AuditCategory.MEDIA_UPLOAD,
 
             // Reactions & polls
@@ -202,6 +213,7 @@ class AuditService(
             "transcribe_voice_note" to AuditCategory.VOICE,
             "send_sticker" to AuditCategory.STICKER,
             "get_sticker_sets" to AuditCategory.STICKER,
+            "find_custom_emoji" to AuditCategory.STICKER,
             "edit_chat_photo" to AuditCategory.MANAGE_CHAT,
             "delete_chat_photo" to AuditCategory.MANAGE_CHAT,
 

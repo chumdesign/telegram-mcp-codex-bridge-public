@@ -60,6 +60,7 @@ data class AuthStateDto(
             is AuthState.WaitingPassword -> AuthStateDto(
                 state = authState.name,
                 passwordHint = authState.passwordHint,
+                errorMessage = authState.errorMessage,
                 timestamp = authState.timestamp,
             )
             is AuthState.Ready -> AuthStateDto(

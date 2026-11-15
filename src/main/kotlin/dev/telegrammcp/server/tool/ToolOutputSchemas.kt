@@ -39,6 +39,8 @@ object ToolOutputSchemas {
         "date" to mapOf("type" to listOf("string", "number")),
         "replyToMessageId" to nullableId, "messageThreadId" to nullableId,
         "mediaType" to nullableText, "forwardFrom" to nullableText, "poll" to poll,
+        "customEmojiIds" to array(integer),
+        "links" to WireSchemas.type(kotlin.reflect.typeOf<List<dev.telegrammcp.server.model.TelegramTextLink>>()),
         "isOutgoing" to boolean,
         "editDate" to mapOf("type" to listOf("string", "number", "null")),
         "mediaAlbumId" to nullableText, "replyInChatId" to nullableId, "contentType" to nullableText,

@@ -16,7 +16,6 @@ import org.springframework.boot.WebApplicationType
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.context.ConfigurableApplicationContext
 import java.awt.Desktop
-import java.net.ServerSocket
 import java.net.URI
 import java.security.SecureRandom
 import java.util.Base64
@@ -233,28 +232,15 @@ object TelegramMcpCli {
         val method = (methodOption.value ?: "qr").lowercase()
         require(method in setOf("qr", "phone")) { "--method must be qr or phone" }
 
-        val port = ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { it.localPort }
         val nonce = randomNonce()
         val context = SpringApplicationBuilder(TelegramMcpApplication::class.java)
             .web(WebApplicationType.SERVLET)
             .profiles("auth-wizard")
-            .properties(
-                "server.address=127.0.0.1",
-                "server.port=$port",
-                "spring.ai.mcp.server.enabled=false",
-                "management.endpoints.enabled-by-default=false",
-                "auth-wizard.enabled=true",
-                "auth-wizard.nonce=$nonce",
-                "auth-wizard.account-label=$account",
-                "auth-wizard.method=$method",
-            )
-            .run(
-                "--mcp.security.mode=api-key",
-                "--mcp.security.oauth.issuer-uri=",
-                "--mcp.security.oauth.jwk-set-uri=",
-                "--mcp.security.oauth.resource-uri=",
-            )
+            .run(*authWizardArguments(account, method, nonce))
 
+        val port = requireNotNull(context.environment.getProperty("local.server.port", Int::class.java)) {
+            "Authentication wizard did not publish its bound port"
+        }
         val url = URI("http://127.0.0.1:$port/setup?nonce=$nonce")
         println("Account: $account; method: $method")
         if (noBrowser) {
@@ -265,6 +251,23 @@ object TelegramMcpCli {
             waitForCompletion(context)
         }
     }
+
+    // Command-line properties outrank application.yml and inherited environment
+    // settings. Port 0 lets the actual server allocate its socket atomically.
+    internal fun authWizardArguments(account: String, method: String, nonce: String): Array<String> = arrayOf(
+        "--server.address=127.0.0.1",
+        "--server.port=0",
+        "--spring.ai.mcp.server.enabled=false",
+        "--management.endpoints.enabled-by-default=false",
+        "--auth-wizard.enabled=true",
+        "--auth-wizard.nonce=$nonce",
+        "--auth-wizard.account-label=$account",
+        "--auth-wizard.method=$method",
+        "--mcp.security.mode=api-key",
+        "--mcp.security.oauth.issuer-uri=",
+        "--mcp.security.oauth.jwk-set-uri=",
+        "--mcp.security.oauth.resource-uri=",
+    )
 
     private fun runConsoleAuth(context: ConfigurableApplicationContext, method: String) {
         val orchestrator = context.getBean(TelegramAuthOrchestrator::class.java)

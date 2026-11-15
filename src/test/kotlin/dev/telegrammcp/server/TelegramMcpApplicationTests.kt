@@ -47,7 +47,7 @@ class TelegramMcpApplicationTests {
     fun `registers the documented tool inventory on Streamable HTTP`() {
         val names = handlers.map { it.definition().name() }
 
-        assertEquals(126, names.size)
+        assertEquals(138, names.size)
         assertEquals(names.toSet(), dev.telegrammcp.server.tool.ToolContractCatalog.schemas.keys,
             "Every registered tool must have an explicit output contract")
         assertTrue("get_send_operation" in names)
@@ -60,8 +60,17 @@ class TelegramMcpApplicationTests {
         assertTrue("transcribe_voice_note" in names)
         assertTrue("get_message_link" in names)
         assertTrue("configure_chat_folder" in names)
+        assertTrue("ensure_unread_private_folder" in names)
+        assertTrue("inspect_chat_folder_rules" in names)
         assertTrue("list_scheduled_messages" in names)
         assertTrue("schedule_message" in names)
+        assertTrue("send_article" in names)
+        assertTrue("edit_article" in names)
+        assertTrue("edit_photo_post" in names)
+        assertTrue("validate_article" in names)
+        assertTrue("send_media_album" in names)
+        assertTrue("get_article" in names)
+        assertTrue("find_custom_emoji" in names)
         assertTrue("set_privacy_settings" in names)
         assertTrue("set_bot_commands" in names)
         assertTrue("set_group_permissions" in names)
@@ -78,5 +87,23 @@ class TelegramMcpApplicationTests {
         assertTrue(
             applicationContext.getBeansOfType(McpStreamableServerTransportProvider::class.java).isNotEmpty(),
         )
+    }
+
+    @Test
+    fun `article MCP schemas expose new content sources and optional cover`() {
+        val byName = handlers.associateBy { it.definition().name() }
+        val send = byName.getValue("send_article").definition().inputSchema()
+        @Suppress("UNCHECKED_CAST")
+        val sendProperties = send["properties"] as Map<String, Any>
+        assertTrue(sendProperties.keys.containsAll(listOf("text", "rich_markdown", "rich_html", "blocks", "photo_path")))
+        assertEquals(listOf("chat_id"), send["required"])
+        val edit = byName.getValue("edit_article").definition().inputSchema()
+        assertEquals(listOf("chat_id", "message_id"), edit["required"])
+        @Suppress("UNCHECKED_CAST")
+        val editProperties = edit["properties"] as Map<String, Any>
+        assertTrue(editProperties.keys.containsAll(listOf("photo_path", "remove_photo", "rich_html", "blocks")))
+        val photoEdit = byName.getValue("edit_photo_post").definition().inputSchema()
+        assertEquals(listOf("chat_id", "message_id"), photoEdit["required"])
+        assertTrue("validate_article" in byName)
     }
 }

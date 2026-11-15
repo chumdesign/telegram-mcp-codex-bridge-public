@@ -58,6 +58,7 @@ interface TelegramClientService {
      * @param replyToMessageId the message to reply to
      * @param text           reply text
      * @param parseMode      text formatting mode
+     * @param messageThreadId optional forum topic; must match the target message
      * @return the sent reply message
      */
     fun replyToMessage(
@@ -65,6 +66,7 @@ interface TelegramClientService {
         replyToMessageId: Long,
         text: String,
         parseMode: ParseMode = ParseMode.PLAIN,
+        messageThreadId: Long? = null,
     ): TelegramMessage
 
     /**
@@ -88,6 +90,9 @@ interface TelegramClientService {
      */
     fun getChats(limit: Int = 50): List<ChatInfo>
 
+    /** Complete main/archive inventory in bounded pages, channel metadata only. */
+    fun inspectChannelActivity(offset: Int = 0, limit: Int = 100): ChannelActivityPage
+
     /**
      * Retrieves detailed information about a single chat.
      *
@@ -95,11 +100,29 @@ interface TelegramClientService {
      */
     fun getChat(chatId: Long): ChatInfo
 
+    /** Inspect type, ownership and prior migration using metadata only. */
+    fun inspectGroupUpgrade(chatId: Long): GroupUpgradePreview
+
+    /** Migrate once and verify history remains hidden to new members; never toggle it. */
+    fun upgradeGroupToSupergroup(chatId: Long): GroupUpgradeResult
+
     /** Lists the account's known chat folders from TDLib's folder update state. */
     fun listChatFolders(): ChatFolderListing
 
     /** Retrieves the complete configuration for one Telegram chat folder. */
     fun getChatFolder(folderId: Int): ChatFolderDetails
+
+    /** TDLib's approximate count for a folder definition; returns no chat details. */
+    fun getChatFolderChatCount(folder: ChatFolderDefinition): Int
+
+    /** Loads only folder chat-list IDs and counts them after TDLib reaches the end. */
+    fun getExactChatFolderChatCount(folderId: Int): Int
+
+    /** Current account limit for explicitly included or excluded chats in a folder. */
+    fun getChatFolderChosenChatCountMax(): Long
+
+    /** Inspects only the last-event type and unread metadata, returning aggregate counts. */
+    fun inspectChatFolderJoinNotices(folderId: Int): JoinNoticeAudit
 
     /** Creates a chat folder and returns its TDLib-assigned ID. */
     fun createChatFolder(folder: ChatFolderDefinition): ChatFolderInfo
@@ -162,6 +185,15 @@ interface TelegramClientService {
      */
     fun getMediaInfo(chatId: Long, messageId: Long): MediaInfo
 
+    /** Fetches every block of a native Article, not its abbreviated message preview. */
+    fun getArticle(chatId: Long, messageId: Long): ArticleInfo
+
+    /** Reads the account's live TDLib rich-message limits. */
+    fun getArticleLimits(): ArticleLimits
+
+    /** Converts and validates an Article locally; never sends a message. */
+    fun validateArticle(draft: ArticleDraft): ArticleValidation
+
     /**
      * Downloads media from a message to a local file path.
      *
@@ -189,6 +221,19 @@ interface TelegramClientService {
      * @return the sent message
      */
     fun sendFile(chatId: Long, filePath: String, caption: String? = null): TelegramMessage
+
+    fun sendMediaFile(chatId: Long, upload: MediaUpload, options: MediaSendOptions): TelegramMessage
+
+    fun sendMediaAlbum(chatId: Long, uploads: List<MediaUpload>, options: MediaSendOptions): List<TelegramMessage>
+
+    /** Sends one native Rich Message with an embedded local photo; optionally schedules it. */
+    fun sendArticle(chatId: Long, text: String, photoPath: String, sendAtEpochSeconds: Int? = null): TelegramMessage
+
+    fun sendArticle(chatId: Long, draft: ArticleDraft, sendAtEpochSeconds: Int? = null): TelegramMessage
+
+    fun editArticle(chatId: Long, messageId: Long, draft: ArticleDraft): TelegramMessage
+
+    fun editPhotoPost(chatId: Long, messageId: Long, photoPath: String?, caption: String?, parseMode: ParseMode): TelegramMessage
 
     // ── Extended message operations ────────────────────────────────────────
 
@@ -268,6 +313,7 @@ interface TelegramClientService {
         repeatPeriodSeconds: Int = 0,
         disableNotification: Boolean = false,
         parseMode: ParseMode = ParseMode.PLAIN,
+        messageThreadId: Long? = null,
     ): ScheduledMessage
 
     /** Changes the time at which an existing scheduled message will be sent. */
@@ -610,6 +656,9 @@ interface TelegramClientService {
 
     /** Returns the installed regular-sticker sets for the current account. */
     fun getInstalledStickerSets(limit: Int = 50): List<StickerSetInfo>
+
+    /** Finds matching custom emoji in a named set and verifies TDLib HTML parsing. */
+    fun findCustomEmoji(setName: String, emoji: String): List<CustomEmojiCandidate>
 
     /** Replaces the chat photo with the supplied local image. */
     fun setChatPhoto(chatId: Long, filePath: String): Boolean

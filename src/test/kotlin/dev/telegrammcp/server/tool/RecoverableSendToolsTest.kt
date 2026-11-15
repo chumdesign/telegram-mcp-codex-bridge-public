@@ -44,7 +44,7 @@ class RecoverableSendToolsTest {
         )
         val metrics = SimpleMeterRegistry()
         val message = TelegramMessage(100, 42, "chat", "sender", text = "text", date = Instant.now())
-        every { client.sendFile(any(), any(), any()) } returns message
+        every { client.sendMediaFile(any(), any(), any()) } returns message
         every { client.sendVoice(any(), any(), any(), any()) } returns message
         every { client.sendSticker(any(), any(), any()) } returns message
         every { client.forwardMessages(any(), any(), any()) } returns listOf(message, message.copy(messageId = 101))
@@ -72,7 +72,7 @@ class RecoverableSendToolsTest {
             assertEquals(if (tool is ScheduleMessageTool) "SCHEDULED" else "SENT", receipt["status"])
             verify(exactly = 1) { guard.checkPermission(tool.definition().name(), arguments) }
         }
-        verify(exactly = 1) { client.sendFile(any(), any(), any()) }
+        verify(exactly = 1) { client.sendMediaFile(any(), any(), any()) }
         verify(exactly = 1) { client.sendVoice(any(), any(), any(), any()) }
         verify(exactly = 1) { client.sendSticker(any(), any(), any()) }
         verify(exactly = 1) { client.forwardMessages(any(), any(), any()) }
@@ -88,6 +88,6 @@ class RecoverableSendToolsTest {
         Files.writeString(file, "changed content")
         val changed = cases.first().first.executeChecked(exchange, cases.first().second + ("idempotency_key" to "send_file"))
         assertTrue(changed.isError)
-        verify(exactly = 1) { client.sendFile(any(), any(), any()) }
+        verify(exactly = 1) { client.sendMediaFile(any(), any(), any()) }
     }
 }

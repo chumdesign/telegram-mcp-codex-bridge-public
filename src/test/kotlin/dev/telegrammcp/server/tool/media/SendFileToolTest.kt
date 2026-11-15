@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.tool.media
+package dev.telegrammcp.server.tool.media
 
 import dev.telegrammcp.server.tool.executeChecked
 
@@ -45,6 +45,10 @@ class SendFileToolTest {
         guardrailService = mockk(relaxed = true)
         fileSecurityService = mockk()
         every { fileSecurityService.validateForUpload(any()) } answers { Path.of(firstArg<String>()) }
+        every { fileSecurityService.withStagedUpload<Any?>(any(), any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            (args[1] as (Path) -> Any?).invoke(Path.of(firstArg<String>()))
+        }
         operationGuardService = mockk(relaxed = true)
         auditService = mockk(relaxed = true)
         objectMapper = jacksonObjectMapper().findAndRegisterModules()
@@ -74,7 +78,7 @@ class SendFileToolTest {
             @Suppress("UNCHECKED_CAST")
             (args[1] as (java.nio.file.Path) -> Any?).invoke(java.nio.file.Path.of("/data/test.pdf"))
         }
-        every { telegramClient.sendFile(42L, any(), null) } returns sentMsg
+        every { telegramClient.sendMediaFile(42L, any(), any()) } returns sentMsg
 
         val result = tool.executeChecked(
             exchange,
@@ -104,8 +108,7 @@ class SendFileToolTest {
     @Test
     fun `blocked by file security violation`() {
         every { entityResolver.resolve(42 as Any) } returns 42L
-        every { fileSecurityService.withStagedUpload<Any?>("/etc/passwd", any()) } throws FileSecurityException("denied")
-            FileSecurityException("Path is outside allowed file system roots")
+        every { fileSecurityService.validateForUpload("/etc/passwd") } throws FileSecurityException("denied")
 
         val result = tool.executeChecked(
             exchange,
@@ -140,7 +143,7 @@ class SendFileToolTest {
             @Suppress("UNCHECKED_CAST")
             (args[1] as (java.nio.file.Path) -> Any?).invoke(java.nio.file.Path.of("/data/doc.pdf"))
         }
-        every { telegramClient.sendFile(42L, any(), "See this file") } returns sentMsg
+        every { telegramClient.sendMediaFile(42L, any(), any()) } returns sentMsg
 
         val result = tool.executeChecked(
             exchange,

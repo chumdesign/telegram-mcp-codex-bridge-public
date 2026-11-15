@@ -174,9 +174,18 @@ class ChatAllowListCoverageTest {
             "joinPublicChat",
             "createBasicGroup",
             "createSupergroupOrChannel",
+            "inspectGroupUpgrade",
+            "inspectChannelActivity",
+            "upgradeGroupToSupergroup",
         )
 
         private val contracts = listOf(
+            AllowListContract("InspectChannelActivityTool",
+                listOf("guardrailService.requireUnrestrictedChatScope(", "telegramClient.inspectChannelActivity(")),
+            AllowListContract("InspectGroupUpgradeTool",
+                listOf("guardrailService.validateChatAccess(", "telegramClient.inspectGroupUpgrade(")),
+            AllowListContract("UpgradeGroupToSupergroupTool",
+                listOf("guardrailService.requireUnrestrictedChatScope(", "telegramClient.upgradeGroupToSupergroup(")),
             // Account-wide result sources are filtered before returning data.
             AllowListContract(
                 "ListChatsTool",
@@ -238,6 +247,37 @@ class ChatAllowListCoverageTest {
                     "telegramClient.listChatFolders(",
                     "ChatFolderInputs.isDerivedFolderAllowed(",
                     "telegramClient.getChatFolder(",
+                ),
+            ),
+            // The only exception to static chat membership is a fixed, unread
+            // private-dialog filter. It never exposes account-wide chat data.
+            AllowListContract(
+                "EnsureUnreadPrivateFolderTool",
+                listOf(
+                    "private val TARGET = ChatFolderDefinition(",
+                    "excludeRead = true",
+                    "includeContacts = true",
+                    "includeNonContacts = true",
+                    "operationGuardService.checkPermission(",
+                    "telegramClient.listChatFolders(",
+                    "telegramClient.getChatFolder(",
+                    "telegramClient.createChatFolder(",
+                    "telegramClient.getChatFolderChatCount(",
+                    "telegramClient.getExactChatFolderChatCount(",
+                    "telegramClient.getChatFolderChosenChatCountMax(",
+                    "telegramClient.inspectChatFolderJoinNotices(",
+                ),
+            ),
+            // Deliberately returns only folder names, flags and explicit-list counts.
+            // The actual member IDs and chat/message contents stay private.
+            AllowListContract(
+                "InspectChatFolderRulesTool",
+                listOf(
+                    "telegramClient.listChatFolders(",
+                    "telegramClient.getChatFolder(",
+                    "definition.pinnedChatIds.size",
+                    "definition.includedChatIds.size",
+                    "definition.excludedChatIds.size",
                 ),
             ),
 
@@ -344,6 +384,7 @@ class ChatAllowListCoverageTest {
                 "forwardMessages",
                 "getBannedChatMembers",
                 "getChat",
+                "getArticle",
                 "getChatAdmins",
                 "getChatEventLog",
                 "getChatInviteLinks",
@@ -371,7 +412,12 @@ class ChatAllowListCoverageTest {
                 "saveDraft",
                 "scheduleMessage",
                 "searchMessages",
+                "sendArticle",
+                "editArticle",
+                "editPhotoPost",
                 "sendFile",
+                "sendMediaFile",
+                "sendMediaAlbum",
                 "sendMessage",
                 "sendPoll",
                 "sendSticker",
@@ -385,6 +431,7 @@ class ChatAllowListCoverageTest {
                 "setChatSlowModeDelay",
                 "setChatTitle",
                 "setForumTopicsEnabled",
+                "inspectGroupUpgrade",
                 "setPollAnswer",
                 "stopPoll",
                 "transcribeVoiceNote",
@@ -406,7 +453,12 @@ class ChatAllowListCoverageTest {
                 "unpinAllMessages",
             ),
             ClientMethodPolicy.ACCOUNT_WIDE_FILTER to setOf(
+                "inspectChannelActivity",
                 "getChats",
+                "getChatFolderChatCount",
+                "getExactChatFolderChatCount",
+                "getChatFolderChosenChatCountMax",
+                "inspectChatFolderJoinNotices",
                 "getDrafts",
                 "getGroupsInCommon",
                 "listChatFolders",
@@ -422,6 +474,7 @@ class ChatAllowListCoverageTest {
             ClientMethodPolicy.CREATE_OR_JOIN to setOf(
                 "createBasicGroup",
                 "createSupergroupOrChannel",
+                "upgradeGroupToSupergroup",
                 "joinChatByInviteLink",
                 "joinPublicChat",
             ),
@@ -455,6 +508,9 @@ class ChatAllowListCoverageTest {
             ClientMethodPolicy.ACCOUNT_SCOPED to setOf(
                 "deleteProfilePhoto",
                 "getInstalledStickerSets",
+                "getArticleLimits",
+                "validateArticle",
+                "findCustomEmoji",
                 "setProfilePhoto",
                 "updateProfile",
             ),

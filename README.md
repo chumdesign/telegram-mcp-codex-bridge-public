@@ -1,4 +1,40 @@
-# Telegram MCP Server
+# telegram-mcp-codex-bridge
+
+Codex-focused fork of [tolboy/telegram-mcp-tdlib](https://github.com/tolboy/telegram-mcp-tdlib).
+Based on upstream **v1.20.0** (TDLight 3.5.9 / TDLib 1.8.68, MCP SDK 2.1.0).
+The local bridge shares one TDLib session between Codex tasks and preserves native
+Articles, tables, covers, safe in-place media edits, custom emoji, forum replies,
+folder helpers, uncapped personal-mode media transfer and native human approvals.
+Personal mode opens ordinary operations account-wide; optional deployment scopes
+and protected credential/session paths remain enforced. Account credentials, session files, channel IDs, and prepared
+posts stay outside this repository.
+
+## Upgrade an existing basic group
+
+`inspect_group_upgrade` reads metadata only: type, owner rights, prior migration
+and current history visibility. It reads no messages and does not mark chats read.
+Basic groups have no global `is_all_history_available` setting, so their preview
+returns `null` for `historyVisibleToNewMembers`.
+
+```json
+{"name":"inspect_group_upgrade","arguments":{"account":"default","chat_id":"-123456789"}}
+```
+
+After reviewing the target, use `upgrade_group_to_supergroup` with the same
+arguments. It requires owner privileges, unrestricted chat scope and human approval.
+TDLib migration is irreversible, deactivates the original group and returns a new
+chat ID. The connector does not toggle history visibility, enable topics, or change
+public usernames or permissions. After migration it verifies
+`is_all_history_available=false`. Existing supergroups are a no-op and retain their
+current setting. `confirmed:true`, where required, never replaces human approval.
+
+A timeout or failed readback reports the known original/new ID. Inspect before
+retrying; migration is never retried automatically. Unexpected visible history after
+migration is a verification failure: the connector does not silently toggle it.
+Use the returned `chatId` for subsequent operations. Old message IDs must not be
+reused as new-supergroup message IDs; links to every old message are not guaranteed.
+
+## Upstream server overview
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/tolboy/telegram-mcp-tdlib/actions/workflows/ci.yml/badge.svg)](https://github.com/tolboy/telegram-mcp-tdlib/actions/workflows/ci.yml)
@@ -87,6 +123,51 @@ because `"confirmed": true` is an argument the model can set itself. `auto` asks
 host elicitation where available, or through the server's loopback page otherwise.
 `MCP_ALLOW_MODEL_CONFIRMED_WRITES=true` is the explicit exception that restores the old
 combination.
+
+### Optional server-side channel publishing scope
+
+For a local Codex bridge that can publish to selected channels, keep the normal
+`TELEGRAM_ALLOWED_CHAT_IDS` read allowlist and set a second, narrower write boundary:
+
+```text
+MCP_READ_ONLY=false
+MCP_WRITE_SCOPE_ENABLED=true
+MCP_WRITABLE_CHAT_IDS=<comma-separated numeric channel IDs>
+MCP_TOOL_ALLOW=<exact tool names needed by this client>
+```
+
+With this mode enabled, the server accepts only `send_message`, `reply_to_message`, `send_file`,
+`send_article`, `edit_article`, `schedule_message`, `edit_message`, `reschedule_message`, and
+`cancel_scheduled_message` as write tools. Each call must use an allowed numeric
+`chat_id`; usernames, missing targets, all other chats, and all other write
+tools are rejected before TDLib is called. Repeating scheduled messages are
+also rejected. An empty write allowlist denies all writes. The mode is off by
+default and never overrides `MCP_READ_ONLY=true`.
+
+For an explicitly approved Saved Messages text test, the optional
+`MCP_WRITE_SCOPE_ALLOW_SAVED_MESSAGES_TEXT=true` permits `send_message` and `reply_to_message`
+with the canonical `chat_id=self` and no reply markup or topic ID. It does not
+permit files, scheduling, editing, or numeric/private-chat targets. This flag
+is off by default and still requires `MCP_WRITE_SCOPE_ENABLED=true`.
+
+For an explicitly approved forum group, set
+`MCP_WRITABLE_FORUM_CHAT_IDS=<comma-separated numeric group IDs>`. Only
+`send_message`, `reply_to_message`, and `schedule_message` are permitted there, and all require a
+positive `message_thread_id` identifying a forum topic. This includes existing
+and future topics in that group, but not the chat outside a topic. The setting
+is empty by default; channel and Saved Messages rules remain separate.
+
+`reply_to_message` uses the positive TDLib `message_id` returned by a message
+lookup, not the suffix of a `t.me` URL. It checks the target in the same chat
+and, when supplied, the matching forum topic before sending. The result must
+retain `replyToMessageId`; a mismatched result reports the sent message ID for
+inspection and never deletes or resends automatically. Replies remain writes
+and require the same host approval as text sending.
+
+Keep publishing approval in the MCP host as a separate control. The server's
+`confirmed: true` argument is only caller acknowledgement, not proof that a
+person approved the post. Keep account credentials, session files, local
+bearer keys, and personal channel IDs outside Git.
 
 ## Connect your client
 
@@ -773,6 +854,9 @@ The full inventory is grouped below. In practice you start with a
 | `get_participants` | Get members of a group/channel |
 | `create_group` | Create a new basic group |
 | `create_supergroup` | Create a private supergroup, optionally forum-enabled |
+| `inspect_group_upgrade` | Preview group migration, ownership and history visibility using metadata only |
+| `inspect_channel_activity` | Page through complete main/archive channel metadata using `offset` and `limit`; follow `nextOffset` until null. Dates are last events, not proof of abandonment; no history reading or read-status changes. |
+| `upgrade_group_to_supergroup` | Migrate an owned basic group once without toggling history visibility; requires human approval |
 | `invite_to_group` | Invite users to a group |
 | `leave_chat` | Leave a chat (destructive, requires confirmation) |
 | `ban_user` | Ban a user from a chat (destructive) |
@@ -811,6 +895,8 @@ The full inventory is grouped below. In practice you start with a
 | `list_chat_folders` | List account chat folders known to TDLib |
 | `get_chat_folder` | Read the full matching rules for one folder |
 | `configure_chat_folder` | Create or fully replace a folder configuration |
+| `ensure_unread_private_folder` | Create or reuse a fixed dynamic folder for unread private chats; count its chat-list IDs and aggregate registration-notice last-event types without reading history or changing read status |
+| `inspect_chat_folder_rules` | List folder names, dynamic rule flags and explicit-list counts without chat IDs or message content |
 | `delete_chat_folder` | Delete a folder without leaving its chats (destructive, requires confirmation) |
 | `reorder_chat_folders` | Reorder folders to a supplied complete ID sequence |
 | `get_group_permissions` | Get the default group permission flags |
@@ -820,7 +906,27 @@ The full inventory is grouped below. In practice you start with a
 
 `configure_chat_folder` intentionally sends a complete TDLib folder definition:
 when `folder_id` is supplied it replaces that folder's rules, rather than
-silently merging unknown state. `list_chat_folders` is populated from TDLib's
+silently merging unknown state.
+
+`ensure_unread_private_folder` is an idempotent, fixed-template exception for
+the scoped Codex deployment: contacts and non-contacts are included, read chats
+are excluded, and bots, groups, and channels remain outside the folder. It
+does not read chat histories, inspect message text, expose chat identifiers or message text, or change read status. Its
+`approximateChatCount` is TDLib's estimate and may lag until the main and
+archive chat lists have been fully loaded. `exactChatCount` is returned only
+after TDLib reports the folder chat list fully loaded; it counts IDs only and
+does not fetch chat histories or message text. `maxChosenChatsPerFolder`
+reports the account-specific limit for explicitly included or excluded chat
+IDs, not a cap on chats matched by dynamic rules. The notice audit checks only
+each chat's last-event content type and unread metadata. It returns
+`registrationLastEventCount` and the stricter `registrationSoleUnreadCount`;
+the latter requires a `messageContactRegistered` last event and exactly one
+unread event, not merely an unread count of one. This is a conservative
+candidate count, not proof of the type of every unread event; it must not
+trigger bulk read-status changes. Telegram folder rules cannot filter by
+event type, so the audit never excludes or marks any chat read.
+
+`list_chat_folders` is populated from TDLib's
 account-folder update stream; call `get_chat_folder` for the complete rules of
 a known folder ID. Scheduled timestamps accept a future ISO-8601 instant or
 Unix epoch seconds; Telegram applies any product/account restrictions to
@@ -867,6 +973,14 @@ all-administrator, chat, chat-administrator, and chat-member scopes.
 | Tool | Description |
 |------|-------------|
 | `get_media_info` | Get metadata for media in a message |
+| `get_article` | Read ordered native blocks, rich inline text, links, table rows/cells, lists and cover metadata; scheduled IDs are not readable until publication |
+| `validate_article` | Parse and validate without sending; report account-specific TDLib limits and measured counts |
+| `download_media` | Download media to a local file (hidden in read-only mode) |
+| `send_file` | Send a local photo, document, video or audio; supports a forum topic, reply and scheduling |
+| `send_media_album` | Send a native 2–10 item photo/video, document or audio album after validating every file |
+| `send_article` | Publish or schedule a native Article from exactly one of `text`, `rich_markdown`, `rich_html`, or `blocks`; optional local JPG/PNG cover |
+| `edit_article` | Patch an editable Article or convert an editable text message to Article in place; no delete/repost |
+| `edit_photo_post` | Replace an ordinary photo or edit its caption in place, preserving omitted photo/caption fields |
 | `download_media` | Download media to the account cache (read-only requires `MCP_READ_ONLY_ALLOW_DOWNLOADS=true`) |
 | `send_file` | Upload and send a file |
 | `send_voice` | Send a voice note (OGG/Opus) to a chat (write, file security) |
@@ -874,6 +988,101 @@ all-administrator, chat, chat-administrator, and chat-member scopes.
 | `send_sticker` | Send a sticker (WEBP/TGS/WEBM) to a chat (write, file security) |
 | `send_album` | Send 2-10 photos/videos, documents or audio files as one grouped album (write, file security) |
 | `get_sticker_sets` | List installed regular sticker sets |
+| `find_custom_emoji` | Resolve the exact custom emoji ID and Unicode emoji from a named set; verify TDLib HTML parsing without sending a message |
+
+#### Native Articles through the personal account
+
+`send_article` and `validate_article` require exactly one content source:
+`text` (backward-compatible paragraphs), `rich_markdown`, `rich_html`, or
+`blocks`. `edit_article` accepts at most one source; omit it to retain the
+current text and formatting. The optional `photo_path` is validated against the
+configured upload roots. On edit, omitting it retains existing Article photos;
+passing it adds or replaces the first photo. Only `remove_photo: true` removes
+photos. A replacement content source replaces the text/layout blocks and retains
+an existing cover. If an Article has images at other positions, content replacement
+fails before mutation rather than silently moving them. A plain text post may be
+converted to an Article through `edit_article` with the same `message_id`, subject
+to Telegram accepting that conversion for the chat and message.
+`send_article` also accepts optional `send_at`. `chat_id: "self"` targets
+the connected user's Saved Messages, not a bot.
+
+`edit_photo_post` handles ordinary `MessagePhoto` posts. Use `photo_path` to
+replace the image while retaining the existing formatted caption, or `caption`
+plus optional `parse_mode` to edit only the caption through `EditMessageCaption`.
+Unspecified fields, caption placement, and spoiler are retained. Telegram's
+`canEditMedia` and caption-length limit are checked before mutation. `edit_message`
+routes a photo-post text change to `EditMessageCaption`; for a simple one-text-block
+Article it preserves photos and other blocks. Complex Articles require
+`edit_article`, and unsupported message types fail without an edit.
+
+Each edit writes a private TDLib snapshot of the original message (and the
+complete Article when applicable) under `TELEGRAM_MCP_DATA_DIR/edit-backups`
+before calling Telegram. A failed backup aborts the edit. On an uncertain edit
+result, read the original `message_id` before considering any retry; do not
+delete/repost to work around an API rejection.
+
+TDLib marks its raw Markdown/HTML rich-message sources **for bots only**.
+For user accounts this connector parses a strict subset locally into native
+`RichMessageSourceBlocks`. Supported Markdown: headings, paragraphs,
+bold/italic, HTTP(S) links, ordered/unordered lists, blockquotes, horizontal
+rules, and GitHub-style tables. Supported inert HTML: `h1`–`h6`, `p`,
+`strong`/`b`, `em`/`i`, `a href`, `ul`/`ol`/`li`, `blockquote`,
+`hr`, `table`/`tr`/`th`/`td`/`caption`. Scripts, handlers, styles,
+unsupported tags, non-HTTP(S) links and unsupported Markdown constructs fail
+validation; they are not silently flattened. Media embedded in markup is not
+supported; use the optional cover or structured blocks. Tables become TDLib
+`InputPageBlockTable` with real cells, not pipe text or an image.
+
+Live account options govern total Article text, block count, nesting, media
+count, and table-column count. Use `validate_article` before sending; the
+ordinary 4096-character message limit does not apply to native Articles.
+Validation is local plus read-only TDLib option checks, not a server-side send
+simulation. Telegram may still reject a send for account/chat permissions.
+
+Example native three-column table with a clickable site name:
+
+```json
+{
+  "chat_id": "self",
+  "blocks": [
+    {"type": "heading", "size": 1, "text": "Подборка сайтов"},
+    {"type": "paragraph", "text": [
+      {"type": "bold", "text": "Три языка"},
+      " · ",
+      {"type": "italic", "text": "для сравнения"}
+    ]},
+    {"type": "table", "bordered": true, "rows": [
+      [
+        {"text": "Сайт", "header": true},
+        {"text": "Формат", "header": true},
+        {"text": "Особенности", "header": true}
+      ],
+      [
+        {"text": [{"type": "link", "url": "https://www.wikipedia.org/", "text": "Wikipedia"}]},
+        {"text": "Энциклопедия"},
+        {"text": "Многоязычная навигация"}
+      ]
+    ]}
+  ]
+}
+```
+
+First call `validate_article` with the same content, omitting `chat_id`.
+Then call `send_article`. Its returned `message_id` can be passed to
+`get_article` and later `edit_article` (with full replacement content).
+
+To add or replace an Article cover without changing its body, call
+`edit_article` with only the target and `photo_path`:
+
+```json
+{"chat_id":"self","message_id":"1234567890","photo_path":"/path/to/publish-ready/cover.png"}
+```
+
+For an ordinary photo post, use `edit_photo_post` with the same fields; add
+`caption` only when the caption should change. Read back `get_article` or
+`get_media_info` and `get_message_link` after editing to verify the preserved
+body, image, message ID, and link. Never retry automatically after an
+indeterminate response.
 
 ### Drafts (3 tools)
 
@@ -977,7 +1186,7 @@ src/main/kotlin/dev/telegrammcp/server/
 │   ├── message/                        # 30 message tools
 │   ├── chat/                           # 49 chat, folder, permission & privacy tools
 │   ├── user/                           # 16 user/contact tools
-│   ├── media/                          # 7 media tools
+│   ├── media/                          # 9 media tools
 │   ├── draft/                          # 3 draft tools
 │   ├── research/                       # 3 bounded public-search tools
 │   └── meta/                           # 3 manifest/account tools

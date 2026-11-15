@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.service
+package dev.telegrammcp.server.service
 
 import dev.telegrammcp.server.config.McpSecurityProperties
 import dev.telegrammcp.server.config.TelegramProperties
@@ -38,7 +38,15 @@ class GuardrailService(
      * @throws GuardrailViolationException if a blocked pattern matches
      */
     fun validateInput(input: String) {
-        val maxLen = mcpProps.guardrails.maxToolInputLength
+        validateInput(input, mcpProps.guardrails.maxToolInputLength)
+    }
+
+    /** Article text has its own explicit limit; ordinary tool inputs stay capped at 4096 by default. */
+    fun validateRichInput(input: String) {
+        validateInput(input, minOf(mcpProps.guardrails.maxRichToolInputLength, 32_768))
+    }
+
+    private fun validateInput(input: String, maxLen: Int) {
         if (input.length > maxLen) {
             throw InvalidToolInputException(
                 "Input exceeds maximum allowed length ($maxLen characters)",
@@ -89,7 +97,7 @@ class GuardrailService(
     fun isChatAllowed(chatId: Long): Boolean {
         val allowed = telegramProps.security.allowedChatIds
         val scoped = permissions?.requestChatIds()
-        return (allowed.isEmpty() || chatId in allowed) && (scoped == null || chatId in scoped)
+        return chatId !in telegramProps.security.blockedChatIds && (allowed.isEmpty() || chatId in allowed) && (scoped == null || chatId in scoped)
     }
 
     /** Includes the active write scope so dynamic-target operations fail closed. */

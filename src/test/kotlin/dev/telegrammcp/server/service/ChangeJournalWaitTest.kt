@@ -265,7 +265,7 @@ class ChangeJournalWaitTest {
             journal.waitForChanges("default", cursor, 10, Duration.ZERO) { true }
         }
         // Another account has its own independent waiter capacity.
-        assertTrue(journal.waitForChanges("other", null, 10, Duration.ZERO) { true }.timedOut)
+        assertTrue(journal.waitForChanges("other", null, 10, Duration.ofSeconds(1)) { true }.timedOut)
         wait.first.interrupt()
         val error = assertFailsWith<ExecutionException> { wait.second.get(3, TimeUnit.SECONDS) }
         assertIs<TelegramApiException>(error.cause)

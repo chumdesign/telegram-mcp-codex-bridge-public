@@ -1,7 +1,8 @@
-﻿package dev.telegrammcp.server.service
+package dev.telegrammcp.server.service
 
 import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.exception.ConfirmationRequiredException
+import dev.telegrammcp.server.exception.GuardrailViolationException
 import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.util.StructuredLogger
 import io.modelcontextprotocol.spec.McpSchema
@@ -36,6 +37,7 @@ class OperationGuardService(
 
             // Chat management
             "create_group", "create_channel", "create_supergroup",
+            "upgrade_group_to_supergroup",
             "create_topic", "edit_forum_topic", "close_forum_topic", "reopen_forum_topic",
             "set_forum_topics_enabled",
             "invite_to_group", "leave_chat",
@@ -48,7 +50,8 @@ class OperationGuardService(
             "add_contact", "delete_contact", "block_user", "unblock_user",
 
             // Local file writes and media upload
-            "download_media", "send_file", "send_voice", "send_sticker", "send_album",
+            "download_media", "send_file", "send_media_album", "send_article", "edit_article", "edit_photo_post", "send_voice", "send_sticker",
+            "send_album",
 
             // Telegram's native transcription may consume Premium/trial quota.
             "transcribe_voice_note",
@@ -77,6 +80,7 @@ class OperationGuardService(
 
             // Chat folders
             "configure_chat_folder", "delete_chat_folder", "reorder_chat_folders",
+            "ensure_unread_private_folder",
 
             // Scheduled messages
             "schedule_message", "reschedule_message", "cancel_scheduled_message",
@@ -89,6 +93,11 @@ class OperationGuardService(
             "register_internal_chat",
         )
 
+        /** The only mutations a channel-publishing deployment may expose. */
+        private val CHANNEL_PUBLISH_TOOLS = setOf(
+            "send_message", "reply_to_message", "send_file", "send_article", "edit_article", "edit_photo_post", "schedule_message", "edit_message",
+            "reschedule_message", "cancel_scheduled_message",
+        )
         /** Downloads still write local files; this exception does not change MCP hints. */
         fun blockedByReadOnly(toolName: String, readOnly: Boolean, allowDownloads: Boolean = false): Boolean =
             readOnly && toolName in WRITE_TOOLS && !(allowDownloads && toolName == "download_media")
@@ -102,6 +111,7 @@ class OperationGuardService(
             "block_user",
             "create_channel",
             "create_supergroup",
+            "upgrade_group_to_supergroup",
             "join_chat_by_link",
             "delete_chat_photo",
             "delete_profile_photo",
@@ -120,6 +130,15 @@ class OperationGuardService(
             // call must not silently weaken its own guardrails.
             "register_internal_chat",
         )
+
+        val PERSONAL_DENIED_TOOLS = setOf("register_internal_chat")
+        val PERSONAL_DANGEROUS_TOOLS = DEFAULT_DESTRUCTIVE_TOOLS + setOf(
+            "create_group", "invite_to_group", "edit_chat_title", "edit_chat_photo", "set_chat_description",
+            "promote_admin", "demote_admin", "unban_user", "unblock_user", "set_forum_topics_enabled",
+            "update_profile", "set_profile_photo", "set_privacy_settings", "set_bot_commands",
+            "get_invite_link", "subscribe_public_channel", "press_inline_button", "clear_draft",
+        )
+        val PERSONAL_ORDINARY_TOOLS = WRITE_TOOLS - PERSONAL_DANGEROUS_TOOLS - PERSONAL_DENIED_TOOLS
 
         /**
          * Writes that are not destructive in the delete/ban sense but move data
@@ -175,12 +194,13 @@ class OperationGuardService(
      * `destructive-tools` replaced them, so listing one extra tool silently
      * dropped confirmation and approval from `delete_message`, `ban_user`, …
      */
-    class RiskPolicy(confirmation: ServerModeProperties.ConfirmationProps) {
+    class RiskPolicy(confirmation: ServerModeProperties.ConfirmationProps, personalMode: Boolean = false) {
         val destructiveTools: Set<String> =
-            DEFAULT_DESTRUCTIVE_TOOLS + validated(confirmation.destructiveTools, "destructive-tools")
+            DEFAULT_DESTRUCTIVE_TOOLS + validated(confirmation.destructiveTools, "destructive-tools") +
+                if (personalMode) PERSONAL_DANGEROUS_TOOLS else emptySet()
 
         val highRiskTools: Set<String> =
-            (DEFAULT_HIGH_RISK_TOOLS + validated(confirmation.highRiskTools, "high-risk-tools")) - destructiveTools
+            ((if (personalMode) emptySet() else DEFAULT_HIGH_RISK_TOOLS) + validated(confirmation.highRiskTools, "high-risk-tools")) - destructiveTools
 
         val scope: ServerModeProperties.ApprovalScope = confirmation.approvalScope
 
@@ -212,7 +232,7 @@ class OperationGuardService(
         }
     }
 
-    val riskPolicy = RiskPolicy(props.confirmation)
+    val riskPolicy = RiskPolicy(props.confirmation, props.writeScope.personalMode)
 
     /** The effective set of destructive tool names (defaults plus configured additions). */
     private val destructiveTools: Set<String> = riskPolicy.destructiveTools
@@ -238,8 +258,71 @@ class OperationGuardService(
             throw ReadOnlyModeException(toolName)
         }
 
+        // This boundary lives in the server, so direct local HTTP clients cannot
+        // bypass the publishing scope enforced by an individual MCP adapter.
+        if (props.writeScope.personalMode && toolName in WRITE_TOOLS) {
+            if (toolName in PERSONAL_DENIED_TOOLS || toolName !in (PERSONAL_ORDINARY_TOOLS + PERSONAL_DANGEROUS_TOOLS)) {
+                throw GuardrailViolationException("Tool '$toolName' is not available in personal mode")
+            }
+            if (toolName == "download_media" && !props.writeScope.allowMediaDownload) {
+                throw GuardrailViolationException("Media downloads are disabled")
+            }
+        } else if (props.writeScope.enabled && toolName in WRITE_TOOLS) {
+            // This fixed-template folder has no chat IDs, message access, or
+            // publishing capability. Other folder mutations remain blocked.
+            if (toolName == "ensure_unread_private_folder") {
+                if (arguments.isNotEmpty()) {
+                    throw GuardrailViolationException("Unread private folder accepts no arguments")
+                }
+            } else if (toolName == "download_media" && props.writeScope.allowMediaDownload) {
+                if (arguments.keys.any { it !in setOf("chat_id", "message_id", "account") }) {
+                    throw GuardrailViolationException("Media download accepts only a chat and message ID")
+                }
+            } else {
+                if (toolName !in CHANNEL_PUBLISH_TOOLS) {
+                    throw GuardrailViolationException("Tool '$toolName' is outside the channel publishing scope")
+                }
+                if (toolName == "reply_to_message" && arguments.keys.any {
+                    it !in setOf("chat_id", "message_id", "text", "parse_mode", "message_thread_id", "account")
+                }) {
+                    throw GuardrailViolationException("Reply accepts only a target message, text, formatting and forum topic")
+                }
+                val savedTextArguments = if (toolName == "reply_to_message") {
+                    setOf("chat_id", "message_id", "text", "parse_mode", "account")
+                } else setOf("chat_id", "text", "parse_mode", "account")
+                val savedMessagesText = props.writeScope.allowSavedMessagesText &&
+                    toolName in setOf("send_message", "reply_to_message") && arguments["chat_id"] == "self" &&
+                    arguments.keys.all { it in savedTextArguments }
+                if (!savedMessagesText) {
+                    val chatId = when (val raw = arguments["chat_id"]) {
+                        is Byte, is Short, is Int, is Long -> (raw as Number).toLong()
+                        is String -> raw.toLongOrNull()
+                        else -> null
+                    }
+                    val topicId = when (val raw = arguments["message_thread_id"]) {
+                        is Byte, is Short, is Int, is Long -> (raw as Number).toLong()
+                        is String -> raw.toLongOrNull()
+                        else -> null
+                    }
+                    val forumText = chatId in props.writeScope.allowedForumChatIds &&
+                        toolName in setOf("send_message", "reply_to_message", "schedule_message") &&
+                        topicId != null && topicId in 1..Int.MAX_VALUE.toLong() &&
+                        "reply_markup" !in arguments
+                    if (!forumText && (chatId == null || chatId !in props.writeScope.allowedChatIds)) {
+                        throw GuardrailViolationException("Publishing requires an allowed numeric chat_id")
+                    }
+                    if (toolName == "schedule_message" || toolName == "reschedule_message") {
+                        val repeat = arguments["repeat_period_seconds"]
+                        if (repeat != null && (repeat !is Number || repeat.toDouble() != 0.0)) {
+                            throw GuardrailViolationException("Recurring scheduled publications are not enabled")
+                        }
+                    }
+                }
+            }
+        }
+
         // 2. Confirmation check for destructive operations
-        if (props.confirmation.enabled && toolName in destructiveTools) {
+        if (props.confirmation.enabled && !props.writeScope.personalMode && toolName in destructiveTools) {
             val confirmed = arguments["confirmed"]
             if (confirmed != true && confirmed?.toString()?.lowercase() != "true") {
                 log.info("Destructive tool '{}' requires caller acknowledgement", toolName)
@@ -289,6 +372,17 @@ class OperationGuardService(
 
     fun riskLabel(toolName: String): String = riskPolicy.riskLabel(toolName)
 
+    fun needsHumanApproval(toolName: String, arguments: Map<String, Any>): Boolean {
+        if (requiresHumanApproval(toolName)) return true
+        if (!props.writeScope.personalMode) return false
+        return when (toolName) {
+            "schedule_message", "reschedule_message" ->
+                arguments["repeat_period_seconds"]?.toString()?.toDoubleOrNull()?.let { it > 0 } == true
+            "edit_article" -> arguments["remove_photo"] == true
+            else -> false
+        }
+    }
+
     private fun getDestructiveDescription(toolName: String): String {
         return when (toolName) {
             "delete_message" -> "This will permanently delete a message"
@@ -298,6 +392,7 @@ class OperationGuardService(
             "block_user" -> "This will block the user"
             "create_channel" -> "This will create a new supergroup or channel owned by the current account"
             "create_supergroup" -> "This will create a new private supergroup with topics and photo owned by the current account"
+            "upgrade_group_to_supergroup" -> "This will irreversibly migrate an owned basic group to a supergroup with a new ID, without toggling history visibility"
             "join_chat_by_link" -> "This will join a chat via the supplied invite link"
             "delete_chat_photo" -> "This will permanently remove the chat photo"
             "delete_profile_photo" -> "This will permanently delete the profile photo"

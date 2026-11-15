@@ -14,6 +14,9 @@ data class ServerModeProperties(
     /** When true, writes are blocked except explicitly permitted local downloads. */
     val readOnly: Boolean = true,
 
+    /** Optional fail-closed scope for channel publishing deployments. */
+    val writeScope: WriteScopeProps = WriteScopeProps(),
+
     /** Configuration for destructive-operation caller acknowledgement. */
     val confirmation: ConfirmationProps = ConfirmationProps(),
 
@@ -26,6 +29,43 @@ data class ServerModeProperties(
     /** Permit download_media in read-only mode and reader/research profiles. */
     val readOnlyAllowDownloads: Boolean = false,
 ) {
+    init {
+        require(!writeScope.personalMode || (writeScope.enabled && confirmation.approval == ApprovalMode.NATIVE)) {
+            "Personal mode requires the server write guard and native human approval"
+        }
+    }
+    data class WriteScopeProps(
+        /** Disabled by default to preserve existing server behavior. */
+        val enabled: Boolean = false,
+
+        /** Explicit operator opt-in to all account chats, with dangerous operations gated. */
+        val personalMode: Boolean = false,
+
+        /** Exact numeric Telegram chat IDs permitted for publishing. Empty denies all writes. */
+        val allowedChatIds: List<Long> = emptyList(),
+
+        /** Allow text sends and replies addressed to the canonical self alias. */
+        val allowSavedMessagesText: Boolean = false,
+
+        /** Forum groups where text may be sent or scheduled only with an explicit topic ID. */
+        val allowedForumChatIds: List<Long> = emptyList(),
+
+        /** Allow bounded local downloads from chats in the Telegram read allow-list. */
+        val allowMediaDownload: Boolean = false,
+
+        /** Canonical root for TDLib downloads when [allowMediaDownload] is enabled. */
+        val mediaDownloadRoot: String = "",
+
+        /** Reject downloads whose declared or actual size exceeds this limit. */
+        val maxMediaDownloadBytes: Long = 50L * 1024 * 1024,
+    ) {
+        init {
+            require(!allowMediaDownload || (mediaDownloadRoot.isNotBlank() && maxMediaDownloadBytes > 0L)) {
+                "Media downloads require a non-empty root and positive size limit"
+            }
+        }
+    }
+
     data class ConfirmationProps(
         /**
          * When true, destructive tools require "confirmed": true in arguments.
@@ -82,7 +122,7 @@ data class ServerModeProperties(
             // modes that never use it would refuse a start over a setting the
             // deployment does not depend on; accepting it where it *is* used
             // would turn every destructive call into an instant refusal.
-            val usesLocalDeadline = approval == ApprovalMode.LOOPBACK || approval == ApprovalMode.AUTO
+            val usesLocalDeadline = approval in setOf(ApprovalMode.LOOPBACK, ApprovalMode.AUTO, ApprovalMode.NATIVE)
             require(!usesLocalDeadline || (!approvalTimeout.isZero && !approvalTimeout.isNegative)) {
                 "MCP_DESTRUCTIVE_APPROVAL_TIMEOUT must be positive for the '${approval.name.lowercase()}' " +
                     "approval mode; '$approvalTimeout' would refuse every destructive tool without asking"
@@ -122,6 +162,9 @@ data class ServerModeProperties(
          * can actually render.
          */
         AUTO,
+
+        /** Windows confirmation dialog; absence, dismissal and timeout deny the operation. */
+        NATIVE,
     }
 
     /** How much of the write surface human approval covers. */
@@ -156,6 +199,9 @@ data class ServerModeProperties(
          * Empty = all extensions allowed (within allowed roots).
          */
         val allowedExtensions: List<String> = emptyList(),
+
+        /** Block known credential/session paths even if they are inside an allowed upload root. */
+        val denySensitiveFiles: Boolean = false,
     )
 
     data class AuditProps(

@@ -54,6 +54,9 @@ internal object TdLibMessageMapper {
             forwardOrigin = forward,
             replyInChatId = reply?.chatId?.takeIf { it != 0L },
             replyQuote = reply?.quote?.let { MessageReplyQuote(it.text?.text.orEmpty(), it.position, it.isManual) },
+            customEmojiIds = (message.content as? TdApi.MessageText)?.text?.entities
+                ?.mapNotNull { (it.type as? TdApi.TextEntityTypeCustomEmoji)?.customEmojiId }.orEmpty(),
+            links = extractTelegramTextLinks(message.content),
             contentType = message.content?.javaClass?.simpleName?.removePrefix("Message")
                 ?.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")?.lowercase(),
         )
@@ -73,6 +76,7 @@ internal object TdLibMessageMapper {
     }
 
     private fun text(content: TdApi.MessageContent?): String? = when (content) {
+        is TdApi.MessageRichMessage -> content.message?.blocks?.joinToString("\n") { ArticleBlockReader.plainText(it) }
         is TdApi.MessageText -> content.text?.text
         is TdApi.MessagePhoto -> content.caption?.text ?: "[Photo]"
         is TdApi.MessageVideo -> content.caption?.text ?: "[Video]"
@@ -107,6 +111,7 @@ internal object TdLibMessageMapper {
 
     private fun mediaType(content: TdApi.MessageContent?): String? = when (content) {
         is TdApi.MessageText, is TdApi.MessageAnimatedEmoji -> null
+        is TdApi.MessageRichMessage -> "article"
         is TdApi.MessagePhoto -> "photo"
         is TdApi.MessageVideo -> "video"
         is TdApi.MessageDocument -> "document"

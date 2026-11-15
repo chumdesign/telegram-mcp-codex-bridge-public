@@ -167,14 +167,20 @@ class TelegramAuthController(
             )
         }
 
-        val accepted = authStateHolder.submitPassword(request.password)
-        return if (accepted) {
+        val refusal = try {
+            orchestrator.submitPassword(request.password)
+        } catch (e: IllegalStateException) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                AuthStateDto.from(authStateHolder.getState()).copy(errorMessage = e.message),
+            )
+        }
+        return if (refusal == null) {
             ResponseEntity.ok(AuthStateDto.from(authStateHolder.getState()))
         } else {
             ResponseEntity.status(HttpStatus.CONFLICT).body(
                 AuthStateDto(
                     state = authStateHolder.getState().name,
-                    errorMessage = "No pending password request — current state: ${authStateHolder.getState().name}",
+                    errorMessage = refusal,
                     timestamp = java.time.Instant.now(),
                 ),
             )

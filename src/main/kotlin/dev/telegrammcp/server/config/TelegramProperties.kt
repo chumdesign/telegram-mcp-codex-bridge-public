@@ -1,4 +1,4 @@
-﻿package dev.telegrammcp.server.config
+package dev.telegrammcp.server.config
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.validation.annotation.Validated
@@ -38,6 +38,8 @@ data class TelegramProperties(
     data class SecurityProperties(
         /** Comma-separated allowed chat IDs; empty means all chats allowed. */
         val allowedChatIds: List<Long> = emptyList(),
+        /** Deny takes precedence over an empty (unrestricted) allowlist. */
+        val blockedChatIds: List<Long> = emptyList(),
         /**
          * Chats a write tool may change. Empty keeps the read allow-list, which
          * itself means every chat when [allowedChatIds] is empty. A non-empty

@@ -74,7 +74,7 @@ class StagedUploadRecoveryTest {
             assertTrue(Files.readString(staged).startsWith("original bytes"))
             observedPaths.add(staged)
         }
-        every { client.sendFile(any(), any(), any()) } answers { observe(secondArg()); message(100) }
+        every { client.sendMediaFile(any(), any(), any()) } answers { observe(secondArg<dev.telegrammcp.server.model.MediaUpload>().filePath); message(100) }
         every { client.sendVoice(any(), any(), any(), any()) } answers { observe(secondArg()); message(100) }
         every { client.sendSticker(any(), any(), any()) } answers { observe(secondArg()); message(100) }
         every { client.sendAlbum(any(), any()) } answers {
@@ -104,7 +104,7 @@ class StagedUploadRecoveryTest {
                 verify(exactly = 1) { guard.checkPermission(tool.definition().name(), arguments) }
             }
         }
-        verify(exactly = 1) { client.sendFile(any(), any(), any()) }
+        verify(exactly = 1) { client.sendMediaFile(any(), any(), any()) }
         verify(exactly = 1) { client.sendVoice(any(), any(), any(), any()) }
         verify(exactly = 1) { client.sendSticker(any(), any(), any()) }
         verify(exactly = 1) { client.sendAlbum(any(), any()) }
@@ -117,8 +117,8 @@ class StagedUploadRecoveryTest {
         val source = source("recording.ogg")
         val files = files()
         lateinit var dispatched: Path
-        every { client.sendFile(any(), any(), any()) } answers {
-            dispatched = Path.of(secondArg<String>())
+        every { client.sendMediaFile(any(), any(), any()) } answers {
+            dispatched = Path.of(secondArg<dev.telegrammcp.server.model.MediaUpload>().filePath)
             throw SendOutcomeUnknownException(42, cause = java.util.concurrent.TimeoutException())
         }
         SendOperationService(mockk { every { currentAccount() } returns "work" }, paths(), mapper).use { operations ->
@@ -131,7 +131,7 @@ class StagedUploadRecoveryTest {
             assertEquals("UNKNOWN", receipt(replay)["status"])
             assertEquals(true, receipt(replay)["replayed"])
             assertTrue(Files.exists(dispatched), "An unresolved send still owns its original bytes")
-            verify(exactly = 1) { client.sendFile(any(), any(), any()) }
+            verify(exactly = 1) { client.sendMediaFile(any(), any(), any()) }
             verify(exactly = 1) { guard.checkPermission("send_file", arguments) }
         }
     }

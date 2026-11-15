@@ -5,8 +5,10 @@ import dev.telegrammcp.server.tool.executeChecked
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.telegrammcp.server.client.TelegramClientService
+import dev.telegrammcp.server.config.ServerModeProperties
 import dev.telegrammcp.server.exception.ReadOnlyModeException
 import dev.telegrammcp.server.model.DownloadResult
+import dev.telegrammcp.server.model.MediaInfo
 import dev.telegrammcp.server.service.AuditService
 import dev.telegrammcp.server.service.EntityResolverService
 import dev.telegrammcp.server.service.GuardrailService
@@ -19,6 +21,9 @@ import io.modelcontextprotocol.server.McpSyncServerExchange
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -33,6 +38,35 @@ class DownloadMediaToolTest {
     private lateinit var objectMapper: ObjectMapper
     private lateinit var tool: DownloadMediaTool
     private lateinit var exchange: McpSyncServerExchange
+
+    @TempDir
+    lateinit var temporaryDirectory: Path
+
+    private fun boundedTool(
+        root: Path,
+        maximumBytes: Long = 50L * 1024 * 1024,
+        personalMode: Boolean = false,
+    ): DownloadMediaTool = DownloadMediaTool(
+        telegramClient = telegramClient,
+        entityResolver = entityResolver,
+        guardrailService = guardrailService,
+        operationGuardService = operationGuardService,
+        auditService = auditService,
+        objectMapper = objectMapper,
+        meterRegistry = SimpleMeterRegistry(),
+        serverModeProperties = ServerModeProperties(
+            writeScope = ServerModeProperties.WriteScopeProps(
+                enabled = true,
+                personalMode = personalMode,
+                allowMediaDownload = true,
+                mediaDownloadRoot = root.toString(),
+                maxMediaDownloadBytes = maximumBytes,
+            ),
+            confirmation = ServerModeProperties.ConfirmationProps(
+                approval = if (personalMode) ServerModeProperties.ApprovalMode.NATIVE else ServerModeProperties.ApprovalMode.OFF,
+            ),
+        ),
+    )
 
     @BeforeEach
     fun setUp() {
@@ -189,6 +223,60 @@ class DownloadMediaToolTest {
 
         assertFalse(result.isError)
         verify { guardrailService.validateChatAccess(99L) }
+    }
+
+    @Test
+    fun `bounded download returns a file only from the configured directory`() {
+        val root = Files.createDirectory(temporaryDirectory.resolve("downloads"))
+        val downloaded = Files.write(root.resolve("document.pdf"), "PDF test".toByteArray())
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getMediaInfo(42L, 100L) } returns MediaInfo(100L, 42L, "document", "document.pdf", "application/pdf", 8L)
+        every { telegramClient.downloadMedia(42L, 100L) } returns DownloadResult(downloaded.toString(), "document.pdf", "application/pdf", 8L)
+
+        val result = boundedTool(root).execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+
+        assertFalse(result.isError)
+        assertTrue((result.content.first() as McpSchema.TextContent).text().contains("document.pdf"))
+    }
+
+    @Test
+    fun `bounded download rejects oversized media before download`() {
+        val root = Files.createDirectory(temporaryDirectory.resolve("downloads"))
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getMediaInfo(42L, 100L) } returns MediaInfo(100L, 42L, "document", "huge.pdf", "application/pdf", 11L)
+
+        val result = boundedTool(root, maximumBytes = 10L).execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+
+        assertTrue(result.isError)
+        verify(exactly = 0) { telegramClient.downloadMedia(any(), any()) }
+    }
+
+    @Test
+    fun `personal download can exceed the scoped deployment size cap`() {
+        val root = Files.createDirectory(temporaryDirectory.resolve("downloads"))
+        val downloaded = Files.write(root.resolve("video.mov"), ByteArray(11))
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getMediaInfo(42L, 100L) } returns MediaInfo(100L, 42L, "video", "video.mov", "video/mp4", 11L)
+        every { telegramClient.downloadMedia(42L, 100L) } returns DownloadResult(downloaded.toString(), "video.mov", "video/mp4", 11L)
+
+        val result = boundedTool(root, maximumBytes = 10L, personalMode = true)
+            .execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+
+        assertFalse(result.isError)
+    }
+
+    @Test
+    fun `bounded download does not expose a path outside its configured directory`() {
+        val root = Files.createDirectory(temporaryDirectory.resolve("downloads"))
+        val outside = Files.write(temporaryDirectory.resolve("outside.pdf"), "PDF test".toByteArray())
+        every { entityResolver.resolve(42 as Any) } returns 42L
+        every { telegramClient.getMediaInfo(42L, 100L) } returns MediaInfo(100L, 42L, "document", "outside.pdf", "application/pdf", 8L)
+        every { telegramClient.downloadMedia(42L, 100L) } returns DownloadResult(outside.toString(), "outside.pdf", "application/pdf", 8L)
+
+        val result = boundedTool(root).execute(exchange, mapOf("chat_id" to 42, "message_id" to 100))
+
+        assertTrue(result.isError)
+        assertFalse((result.content.first() as McpSchema.TextContent).text().contains(outside.toString()))
     }
 }
 

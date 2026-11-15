@@ -566,6 +566,18 @@ internal class TdLibClientSupport(
                 val largest = content.photo?.sizes?.maxByOrNull { it.width * it.height }
                 MediaData("photo", null, "image/jpeg", largest?.photo?.size, largest?.width, largest?.height, null)
             }
+            is TdApi.MessageRichMessage -> {
+                val embeddedPhoto = content.message?.blocks
+                    ?.filterIsInstance<TdApi.PageBlockPhoto>()
+                    ?.firstOrNull()
+                    ?.photo
+                    ?.sizes
+                    ?.maxByOrNull { it.width * it.height }
+                MediaData(
+                    "article", null, embeddedPhoto?.let { "image/jpeg" },
+                    embeddedPhoto?.photo?.size, embeddedPhoto?.width, embeddedPhoto?.height, null,
+                )
+            }
             is TdApi.MessageVideo -> {
                 val v = content.video
                 MediaData("video", v?.fileName, v?.mimeType, v?.video?.size, v?.width, v?.height, v?.duration)
